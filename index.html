@@ -5,10 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>楓之谷TMS 裝備模擬計算機</title>
 <style>
-:root{
+:root, body[data-theme="ocean"]{ /* 深夜藍(預設) */
   --bg:#12141a; --card:#1c1f28; --card2:#232734; --line:#333849;
   --text:#e8eaf0; --muted:#8b91a5; --accent:#5ec8f2; --accent2:#f2b75e;
-  --good:#6fd98a; --bad:#f27e7e; --radius:12px;
+  --good:#6fd98a; --bad:#f27e7e; --btn-text:#0c2530; --radius:12px;
+}
+body[data-theme="maple"]{ /* 楓紅 */
+  --bg:#191012; --card:#241618; --card2:#2f1c1f; --line:#4a2b2f;
+  --text:#f2e8e8; --muted:#a58b8e; --accent:#f2755e; --accent2:#f2c15e;
+  --good:#8ad96f; --bad:#f27e9e; --btn-text:#30110c;
+}
+body[data-theme="forest"]{ /* 森林綠 */
+  --bg:#101711; --card:#17211a; --card2:#1e2b22; --line:#2f4636;
+  --text:#e8f0ea; --muted:#8ba594; --accent:#6fd98a; --accent2:#d9c86f;
+  --good:#8ad96f; --bad:#f27e7e; --btn-text:#0c3018;
+}
+body[data-theme="violet"]{ /* 紫羅蘭 */
+  --bg:#141019; --card:#1d1626; --card2:#261d31; --line:#3c2f4d;
+  --text:#ece8f0; --muted:#9a8ba5; --accent:#b78af2; --accent2:#f28ad9;
+  --good:#8af2c6; --bad:#f27e7e; --btn-text:#230c30;
+}
+body[data-theme="light"]{ /* 淺色 */
+  --bg:#f2f3f7; --card:#ffffff; --card2:#eef0f5; --line:#d5d9e3;
+  --text:#23283a; --muted:#6b7284; --accent:#1e88c7; --accent2:#c7801e;
+  --good:#2e9e52; --bad:#cc4747; --btn-text:#ffffff;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:"Segoe UI","Microsoft JhengHei",sans-serif;line-height:1.55;padding:20px}
@@ -24,7 +44,7 @@ input,select{background:var(--card2);border:1px solid var(--line);color:var(--te
 input:focus,select:focus{border-color:var(--accent)}
 .field{flex:1;min-width:130px}
 .field.sm{min-width:96px;max-width:130px}
-button{background:var(--accent);color:#0c2530;border:none;border-radius:8px;padding:9px 20px;font-size:.92rem;font-weight:700;cursor:pointer}
+button{background:var(--accent);color:var(--btn-text);border:none;border-radius:8px;padding:9px 20px;font-size:.92rem;font-weight:700;cursor:pointer}
 button:hover{filter:brightness(1.1)}
 button:disabled{opacity:.45;cursor:not-allowed}
 button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
@@ -58,6 +78,10 @@ details.adv summary{cursor:pointer;color:var(--muted);font-size:.8rem}
 .equip .pot{margin-top:4px;color:var(--muted)}
 .equip .pot b{color:var(--text);font-weight:600}
 .grade-傳說{color:#6fd98a}.grade-罕見{color:#f2e05e}.grade-稀有{color:#c39df2}.grade-特殊{color:#5ec8f2}
+body[data-theme="light"] .grade-傳說{color:#1f8a45}
+body[data-theme="light"] .grade-罕見{color:#a38a10}
+body[data-theme="light"] .grade-稀有{color:#7a4bbf}
+body[data-theme="light"] .grade-特殊{color:#1e88c7}
 /* sim */
 .simgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
 .result{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:14px}
@@ -77,8 +101,14 @@ details.adv summary{cursor:pointer;color:var(--muted);font-size:.8rem}
 .plan .pval.up{color:var(--good)}.plan .pval.down{color:var(--bad)}
 .plan .pdesc{flex-basis:100%;font-size:.72rem;color:var(--muted)}
 .plan .pcost{font-size:.75rem;color:var(--accent2);min-width:150px;text-align:right}
-.plan .best{font-size:.68rem;color:#0c2530;background:var(--good);border-radius:6px;padding:1px 6px}
+.plan .best{font-size:.68rem;color:var(--btn-text);background:var(--good);border-radius:6px;padding:1px 6px}
 .plan button{padding:4px 10px;font-size:.75rem}
+/* theme switcher */
+.themes{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.themes span{font-size:.75rem;color:var(--muted)}
+.tsw{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;flex-shrink:0}
+.tsw.active{border-color:var(--text)}
+.tsw:hover{transform:scale(1.12)}
 .baseline-tag{font-size:.7rem;color:var(--accent2);border:1px solid var(--accent2);border-radius:6px;padding:1px 6px}
 </style>
 </head>
@@ -86,6 +116,8 @@ details.adv summary{cursor:pointer;color:var(--muted);font-size:.8rem}
 <div class="wrap">
   <h1>楓之谷<span>TMS</span> 裝備模擬計算機 <small style="font-size:.7rem;color:var(--muted)">測試版</small></h1>
   <div class="sub">輸入角色名稱讀取機體與裝備,模擬屬性增減後計算總體變強幅度</div>
+
+  <div class="themes" id="themeBar"><span>主題:</span></div>
 
   <!-- API 設定 -->
   <div class="card" id="cardKey">
@@ -410,6 +442,35 @@ const Api = (() => {
  * ========================================================= */
 const $ = (id) => document.getElementById(id);
 const state = { statMap: null, build: "str", className: "", planKey: "", lastSim: null };
+
+/* ---------- 主題 ---------- */
+const THEMES = [
+  ["ocean",  "深夜藍", "#5ec8f2", "#1c1f28"],
+  ["maple",  "楓紅",   "#f2755e", "#241618"],
+  ["forest", "森林綠", "#6fd98a", "#17211a"],
+  ["violet", "紫羅蘭", "#b78af2", "#1d1626"],
+  ["light",  "淺色",   "#1e88c7", "#ffffff"],
+];
+function applyTheme(key) {
+  document.body.dataset.theme = key;
+  localStorage.setItem("msec_theme", key);
+  document.querySelectorAll(".tsw").forEach(b =>
+    b.classList.toggle("active", b.dataset.theme === key));
+}
+{
+  const bar = $("themeBar");
+  for (const [key, name, accent, card] of THEMES) {
+    const b = document.createElement("button");
+    b.className = "tsw";
+    b.dataset.theme = key;
+    b.title = name;
+    b.setAttribute("aria-label", `主題:${name}`);
+    b.style.background = `linear-gradient(135deg, ${accent} 50%, ${card} 50%)`;
+    b.onclick = () => applyTheme(key);
+    bar.appendChild(b);
+  }
+  applyTheme(localStorage.getItem("msec_theme") || "ocean");
+}
 
 /* ---------- 設定 ---------- */
 $("apiKey").value = localStorage.getItem("msec_key") || "";
