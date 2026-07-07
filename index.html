@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>楓之谷TMS 裝備模擬計算機</title>
+<style>
+:root{
+  --bg:#12141a; --card:#1c1f28; --card2:#232734; --line:#333849;
+  --text:#e8eaf0; --muted:#8b91a5; --accent:#5ec8f2; --accent2:#f2b75e;
+  --good:#6fd98a; --bad:#f27e7e; --radius:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:"Segoe UI","Microsoft JhengHei",sans-serif;line-height:1.55;padding:20px}
+.wrap{max-width:1080px;margin:0 auto}
+h1{font-size:1.4rem;margin-bottom:4px}
+h1 span{color:var(--accent)}
+.sub{color:var(--muted);font-size:.85rem;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px}
+.card h2{font-size:1.05rem;margin-bottom:12px;color:var(--accent);display:flex;align-items:center;gap:8px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+label{display:block;font-size:.78rem;color:var(--muted);margin-bottom:3px}
+input,select{background:var(--card2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px;font-size:.9rem;outline:none;width:100%}
+input:focus,select:focus{border-color:var(--accent)}
+.field{flex:1;min-width:130px}
+.field.sm{min-width:96px;max-width:130px}
+button{background:var(--accent);color:#0c2530;border:none;border-radius:8px;padding:9px 20px;font-size:.92rem;font-weight:700;cursor:pointer}
+button:hover{filter:brightness(1.1)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.hint{font-size:.76rem;color:var(--muted);margin-top:8px}
+.hint a{color:var(--accent)}
+.err{color:var(--bad);font-size:.85rem;margin-top:8px;white-space:pre-wrap}
+.hidden{display:none}
+details.adv{margin-top:10px}
+details.adv summary{cursor:pointer;color:var(--muted);font-size:.8rem}
+/* character card */
+.char{display:flex;gap:18px;flex-wrap:wrap}
+.char img{width:96px;height:96px;image-rendering:pixelated;background:var(--card2);border-radius:var(--radius)}
+.char .meta div{font-size:.9rem}
+.char .meta .name{font-size:1.15rem;font-weight:700}
+.char .meta .muted{color:var(--muted);font-size:.8rem}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:14px;width:100%}
+.stat{background:var(--card2);border-radius:8px;padding:8px 10px}
+.stat .k{font-size:.72rem;color:var(--muted)}
+.stat .v{font-size:.95rem;font-weight:600}
+/* equipment */
+.equipgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.equip{background:var(--card2);border-radius:8px;padding:10px;font-size:.8rem}
+.equip .slot{color:var(--muted);font-size:.7rem}
+.equip .hdr{display:flex;gap:8px;align-items:center}
+.equip .icon{width:32px;height:32px;image-rendering:pixelated;flex-shrink:0}
+.equip .nm{font-weight:700;font-size:.85rem}
+.equip .star{color:var(--accent2)}
+.equip .scroll{color:var(--accent);font-size:.75rem}
+.equip .opts{margin-top:4px;color:var(--accent2);font-size:.72rem}
+#presetTabs button{padding:5px 12px;font-size:.78rem}
+.equip .pot{margin-top:4px;color:var(--muted)}
+.equip .pot b{color:var(--text);font-weight:600}
+.grade-傳說{color:#6fd98a}.grade-罕見{color:#f2e05e}.grade-稀有{color:#c39df2}.grade-特殊{color:#5ec8f2}
+/* sim */
+.simgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.result{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.result .total{font-size:1.7rem;font-weight:800}
+.result .total.up{color:var(--good)}
+.result .total.down{color:var(--bad)}
+.breakdown{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-top:10px;width:100%}
+.bd{background:var(--card2);border-radius:8px;padding:7px 10px;font-size:.8rem}
+.bd .k{color:var(--muted);font-size:.7rem}
+.bd .v.up{color:var(--good)}.bd .v.down{color:var(--bad)}
+.note{font-size:.75rem;color:var(--muted);margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+/* plans */
+.plan{display:flex;gap:12px;align-items:center;background:var(--card2);border-radius:8px;padding:10px 12px;margin-bottom:8px;flex-wrap:wrap}
+.plan .rank{font-size:.75rem;color:var(--muted);width:24px}
+.plan .pname{font-weight:700;flex:1;min-width:120px}
+.plan .pval{font-size:1.05rem;font-weight:800}
+.plan .pval.up{color:var(--good)}.plan .pval.down{color:var(--bad)}
+.plan .pdesc{flex-basis:100%;font-size:.72rem;color:var(--muted)}
+.plan .pcost{font-size:.75rem;color:var(--accent2);min-width:150px;text-align:right}
+.plan .best{font-size:.68rem;color:#0c2530;background:var(--good);border-radius:6px;padding:1px 6px}
+.plan button{padding:4px 10px;font-size:.75rem}
+.baseline-tag{font-size:.7rem;color:var(--accent2);border:1px solid var(--accent2);border-radius:6px;padding:1px 6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>楓之谷<span>TMS</span> 裝備模擬計算機 <small style="font-size:.7rem;color:var(--muted)">測試版</small></h1>
+  <div class="sub">輸入角色名稱讀取機體與裝備,模擬屬性增減後計算總體變強幅度</div>
+
+  <!-- API 設定 -->
+  <div class="card" id="cardKey">
+    <h2>① API 設定</h2>
+    <div class="row">
+      <div class="field" style="flex:3">
+        <label>NEXON OpenAPI Key(僅存於你的瀏覽器 localStorage,不會上傳)</label>
+        <input type="password" id="apiKey" placeholder="live_xxxxxxxx...">
+      </div>
+      <button id="btnSaveKey">儲存</button>
+    </div>
+    <details class="adv">
+      <summary>進階:CORS Proxy 設定</summary>
+      <div class="row" style="margin-top:8px">
+        <div class="field" style="flex:3">
+          <label>API Base URL(若瀏覽器直連被 CORS 擋下,填入自架 proxy 位址)</label>
+          <input type="text" id="apiBase" placeholder="https://open.api.nexon.com">
+        </div>
+      </div>
+    </details>
+    <div class="hint">申請 Key:<a href="https://openapi.nexon.com/my-application/" target="_blank" rel="noopener">openapi.nexon.com → Register Application</a>(選 MapleStory TW)</div>
+  </div>
+
+  <!-- 查詢 -->
+  <div class="card">
+    <h2>② 角色查詢</h2>
+    <div class="row">
+      <div class="field" style="flex:2">
+        <label>角色名稱</label>
+        <input type="text" id="charName" placeholder="輸入 TMS 角色名稱" autocomplete="off">
+      </div>
+      <button id="btnSearch">查詢</button>
+    </div>
+    <div class="err hidden" id="searchErr"></div>
+  </div>
+
+  <!-- 角色資訊(機體 / 裝備 分頁) -->
+  <div class="card hidden" id="cardChar">
+    <h2>③ 角色機體</h2>
+    <div class="row" style="margin-bottom:12px">
+      <button id="tabBtnInfo">機體資訊</button>
+      <button id="tabBtnEquip" class="ghost">裝備一覽 <span id="equipCount"></span></button>
+    </div>
+    <div id="tabInfo">
+      <div class="char">
+        <img id="charImg" alt="">
+        <div class="meta">
+          <div class="name" id="cName"></div>
+          <div id="cClass"></div>
+          <div class="muted" id="cWorld"></div>
+          <div class="muted" id="cDate"></div>
+        </div>
+        <div class="statgrid" id="statGrid"></div>
+      </div>
+      <details class="adv hidden" id="statMore">
+        <summary>更多數值</summary>
+        <div class="statgrid" id="statMoreGrid" style="margin-top:8px"></div>
+      </details>
+    </div>
+    <div id="tabEquip" class="hidden">
+      <div class="row" id="presetTabs" style="margin-bottom:12px"></div>
+      <div class="equipgrid" id="equipGrid"></div>
+    </div>
+  </div>
+
+  <!-- 手動填入 -->
+  <div class="card hidden" id="cardManual">
+    <h2>④ 手動填入 <span class="baseline-tag">API 無法取得的數值</span></h2>
+    <div style="margin-bottom:6px;font-size:.85rem;color:var(--muted)">請照面板/裝備自行加總;會依角色名記住填寫值</div>
+    <div class="simgrid" id="manualGrid"></div>
+    <div class="hint" id="derivedClear"></div>
+  </div>
+
+  <!-- 模擬 -->
+  <div class="card hidden" id="cardSim">
+    <h2>⑤ 模擬設定 <span class="baseline-tag">基準值可手動修正</span></h2>
+
+    <div style="margin-bottom:6px;font-size:.85rem;color:var(--muted)">基準值(自動帶入 API 資料)</div>
+    <div class="simgrid" id="baseGrid"></div>
+
+    <div style="margin:16px 0 6px;font-size:.85rem;color:var(--muted)">模擬變化量(正=增加、負=減少;模擬替換裝備的屬性差值)</div>
+    <div class="simgrid" id="deltaGrid"></div>
+
+    <div style="margin:16px 0 6px;font-size:.85rem;color:var(--accent2)">終傷調整(單獨計算)</div>
+    <div class="row">
+      <div class="field sm">
+        <label>來源原先 %</label>
+        <input type="number" step="any" id="delta_fdFrom" placeholder="例:40">
+      </div>
+      <div class="field sm">
+        <label>調整後 %</label>
+        <input type="number" step="any" id="delta_fdTo" placeholder="例:60">
+      </div>
+      <div class="field" style="flex:2">
+        <div class="hint" id="fdPreview" style="margin-top:0"></div>
+      </div>
+    </div>
+    <div class="hint">
+      終傷各來源之間彼此「互乘」,不能直接加減面板值。請填想調整的那一項來源
+      (通常是萌獸終傷)的原先與調整後數值,系統會自動逆推:增幅 = (1+調整後)/(1+原先)。
+      例:萌獸終傷 40% → 60%,增幅 = 1.6/1.4 ≈ +14.29%,面板終傷也會按此比例換算。
+      新增來源:原先填 0;移除來源:調整後填 0。
+    </div>
+
+    <div class="row" style="margin-top:14px">
+      <button id="btnCalc">計算增幅</button>
+      <button class="ghost" id="btnResetDelta">清空變化量</button>
+    </div>
+
+    <div class="result hidden" id="resultBox">
+      <div>總體變強:</div>
+      <div class="total" id="resultTotal"></div>
+      <div class="breakdown" id="breakdown"></div>
+    </div>
+
+  </div>
+
+  <!-- 儲存方案 -->
+  <div class="card hidden" id="cardPlans">
+    <h2>⑥ 儲存方案 <span style="font-size:.75rem;color:var(--muted)">比較下一步投資裝備的效益</span></h2>
+    <div class="row">
+      <div class="field" style="flex:2">
+        <label>方案名稱(例:武器上22星、換艾特倫手套)</label>
+        <input type="text" id="planName" placeholder="輸入名稱後儲存目前的計算結果">
+      </div>
+      <div class="field sm">
+        <label>成本(選填,單位自訂)</label>
+        <input type="number" step="any" id="planCost" placeholder="例:35000">
+      </div>
+      <button id="btnSavePlan" disabled>儲存目前結果</button>
+    </div>
+    <div class="hint" id="planHint">先在上方「計算增幅」,再為結果命名儲存;方案依角色名分開記憶。成本單位自訂(雪花、楓幣、台幣皆可),但同角色請用同一單位才能比較 CP 值。</div>
+    <div class="row" style="margin-top:12px">
+      <span style="font-size:.78rem;color:var(--muted);align-self:center">排序:</span>
+      <button id="sortPct" style="padding:5px 12px;font-size:.78rem">依增幅</button>
+      <button id="sortCp" class="ghost" style="padding:5px 12px;font-size:.78rem">依CP值(每1%成本最低)</button>
+    </div>
+    <div id="planList" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================
+ * 計算引擎(純函式,無外部相依)
+ * ========================================================= */
+const Engine = (() => {
+
+  // 職業體系:主/副屬對應與屬性係數
+  const BUILDS = {
+    str:   { label: "力量型(主STR/副DEX)",     main: ["STR"],              minor: ["DEX"] },
+    dex:   { label: "敏捷型(主DEX/副STR)",     main: ["DEX"],              minor: ["STR"] },
+    int:   { label: "智力型(主INT/副LUK)",     main: ["INT"],              minor: ["LUK"] },
+    luk:   { label: "幸運型(主LUK/副DEX)",     main: ["LUK"],              minor: ["DEX"] },
+    luk2:  { label: "幸運型(主LUK/副STR+DEX)", main: ["LUK"],              minor: ["STR", "DEX"] },
+    xenon: { label: "傑諾(STR+DEX+LUK)",       main: ["STR", "DEX", "LUK"], minor: [] },
+    hp:    { label: "惡魔復仇者(HP)",           main: ["HP"],               minor: ["STR"] },
+  };
+
+  // API character_class 關鍵字 → 體系(比對採「包含」,容忍 API 名稱變體)
+  const CLASS_KEYWORDS = [
+    ["hp",    ["惡魔復仇者"]],
+    ["xenon", ["傑諾"]],
+    ["luk2",  ["暗影神偷", "影武者", "卡蒂娜"]],
+    ["luk",   ["夜使者", "暗夜行者", "幻影俠盜", "虎影", "卡莉"]],
+    ["int",   ["大魔導士", "主教", "烈焰巫師", "煉獄巫師", "龍魔導士", "夜光",
+               "伊利恩", "凱內西斯", "菈菈", "琳恩", "陰陽師"]],
+    ["dex",   ["箭神", "神射手", "開拓者", "槍神", "破風使者", "狂豹獵人", "機甲戰神",
+               "精靈遊俠", "天使破壞者", "凱殷", "墨玄"]],
+    ["str",   ["英雄", "聖騎士", "黑騎士", "拳霸", "重砲指揮官", "聖魂劍士", "閃雷悍將",
+               "米哈逸", "爆拳槍神", "惡魔殺手", "狂狼勇士", "隱月", "凱撒", "亞克",
+               "阿戴爾", "神之子", "劍豪"]],
+  ];
+
+  const CRIT_BASE = 1.35;   // 爆傷基底
+  const DA_HP_DIVISOR = 3.5, DA_HP_WEIGHT = 0.8; // 惡魔復仇者 HP→屬性 近似換算
+
+  function detectBuild(className) {
+    if (!className) return "str";
+    for (const [key, words] of CLASS_KEYWORDS)
+      if (words.some(w => className.includes(w))) return key;
+    return "str";
+  }
+
+  // final_stat 陣列 → { 名稱: 數值 }
+  function parseFinalStat(list) {
+    const out = {};
+    for (const s of list || []) {
+      const name = s.stat_name, raw = s.stat_value;
+      if (name == null || raw == null) continue;
+      const num = parseFloat(String(raw).replace(/[,%\s]/g, ""));
+      if (!Number.isNaN(num)) out[name] = num;
+    }
+    return out;
+  }
+
+  function sumStats(statMap, names) {
+    return names.reduce((acc, n) => acc + (statMap[n] || 0), 0);
+  }
+
+  // 屬性戰力:一般 4×主+副;惡魔復仇者 HP 折算
+  function attributePower(main, minor, buildKey) {
+    if (buildKey === "hp") return DA_HP_WEIGHT * (main / DA_HP_DIVISOR) + minor;
+    return 4 * main + minor;
+  }
+
+  // 無視防禦乘算疊加(delta<0 = 移除一條 |delta| 的無視)
+  function combineIgnore(base, delta) {
+    let v = base;
+    if (delta > 0) v = 1 - (1 - base) * (1 - delta);
+    if (delta < 0) v = 1 - (1 - base) / (1 - Math.min(-delta, 0.9999));
+    return Math.min(Math.max(v, 0), 1);
+  }
+
+  // 對特定防禦率怪物的傷害係數
+  function defenseFactor(ignore, monsterPdr) {
+    return Math.max(1 - monsterPdr * (1 - ignore), 0.0001);
+  }
+
+  // 由最終值反推吃%裸值:final = clear×(1+pct) + unique
+  function deriveClear(finalV, pct, unique) {
+    return Math.max((finalV - unique) / (1 + pct), 0);
+  }
+
+  /**
+   * 模擬總增幅
+   * 屬性模型:最終值 = 吃%裸值(clear) × (1 + 屬性%) + 不吃%值(unique)
+   * baseline: { build, mainFinal, mainPct, mainUnique,
+   *             minorFinal, minorPct, minorUnique,
+   *             attack, attackPct, dmg, boss, crit, fd, ignore, bossPdr }
+   *   (百分比一律以小數表示,例如 85% → 0.85)
+   * delta: { mainFlat(吃%), mainPct, mainUnique(不吃%),
+   *          minorFlat(吃%), minorPct, minorUnique(不吃%),
+   *          attackFlat, attackPct, dmg, boss, crit, ignore,
+   *          fdFrom, fdTo(終傷單一來源 原先/調整後,互乘逆推) }
+   * 回傳 { factors: {各項倍率}, total: 總倍率 }
+   */
+  function simulate(baseline, delta) {
+    const b = baseline, d = delta;
+    const f = {};
+
+    // 屬性:flat 變化吃%,unique 變化不吃%
+    const mainClear  = deriveClear(b.mainFinal,  b.mainPct  || 0, b.mainUnique  || 0);
+    const minorClear = deriveClear(b.minorFinal, b.minorPct || 0, b.minorUnique || 0);
+    const mainNew  = (mainClear  + (d.mainFlat  || 0)) * (1 + (b.mainPct  || 0) + (d.mainPct  || 0)) + (b.mainUnique  || 0) + (d.mainUnique  || 0);
+    const minorNew = (minorClear + (d.minorFlat || 0)) * (1 + (b.minorPct || 0) + (d.minorPct || 0)) + (b.minorUnique || 0) + (d.minorUnique || 0);
+    const apOld = attributePower(b.mainFinal, b.minorFinal, b.build);
+    const apNew = attributePower(mainNew, minorNew, b.build);
+    f.attribute = apOld > 0 ? apNew / apOld : 1;
+
+    // 攻擊力(最終值加算)與攻擊%
+    f.attackFlat = b.attack > 0 ? (b.attack + (d.attackFlat || 0)) / b.attack : 1;
+    f.attackPct  = (1 + b.attackPct + (d.attackPct || 0)) / (1 + b.attackPct);
+
+    // 傷害 + BOSS 傷(共用同一乘區)
+    const dbOld = 1 + b.dmg + b.boss;
+    f.dmgBoss = (dbOld + (d.dmg || 0) + (d.boss || 0)) / dbOld;
+
+    // 爆擊傷害
+    f.crit = (CRIT_BASE + b.crit + (d.crit || 0)) / (CRIT_BASE + b.crit);
+
+    // 最終傷害:各來源互乘,以「單一來源 原先→調整後」逆推
+    // 增幅 = (1+調整後) / (1+原先);面板新值 = (1+面板)×增幅 - 1
+    f.finalDmg = (1 + (d.fdTo || 0)) / (1 + (d.fdFrom || 0));
+
+    // 無視防禦
+    const igNew = combineIgnore(b.ignore, d.ignore || 0);
+    f.ignore = defenseFactor(igNew, b.bossPdr) / defenseFactor(b.ignore, b.bossPdr);
+
+    const total = f.attribute * f.attackFlat * f.attackPct * f.dmgBoss * f.crit * f.finalDmg * f.ignore;
+    return { factors: f, total };
+  }
+
+  return { BUILDS, detectBuild, parseFinalStat, sumStats, attributePower,
+           combineIgnore, defenseFactor, deriveClear, simulate, CRIT_BASE };
+})();
+
+/* =========================================================
+ * API 客戶端
+ * ========================================================= */
+const Api = (() => {
+  const DEFAULT_BASE = "https://open.api.nexon.com";
+  const GAME = "maplestorytw";
+
+  function base() { return (localStorage.getItem("msec_base") || DEFAULT_BASE).replace(/\/+$/, ""); }
+  function key()  { return localStorage.getItem("msec_key") || ""; }
+
+  async function call(path, params) {
+    const url = new URL(`${base()}/${GAME}/v1${path}`);
+    for (const [k, v] of Object.entries(params || {})) url.searchParams.set(k, v);
+    let res;
+    try {
+      res = await fetch(url, { headers: { "x-nxopen-api-key": key() } });
+    } catch (e) {
+      throw new Error("連線失敗。可能原因:網路問題,或 Nexon API 不允許瀏覽器直連(CORS)。\n若為 CORS 問題,請在「進階:CORS Proxy 設定」填入自架 proxy 位址。");
+    }
+    if (!res.ok) {
+      let msg = `API 錯誤 (HTTP ${res.status})`;
+      try {
+        const e = await res.json();
+        if (e?.error?.message) msg += `:${e.error.message}`;
+      } catch (_) {}
+      if (res.status === 400) msg += "\n(常見原因:角色名稱不存在或拼寫錯誤)";
+      if (res.status === 403) msg += "\n(常見原因:API Key 無效或未選擇 MapleStory TW)";
+      if (res.status === 429) msg += "\n(API 用量已達上限,請稍後再試)";
+      throw new Error(msg);
+    }
+    return res.json();
+  }
+
+  return {
+    DEFAULT_BASE,
+    getOcid:  (name) => call("/id", { character_name: name }),
+    getBasic: (ocid) => call("/character/basic", { ocid }),
+    getStat:  (ocid) => call("/character/stat", { ocid }),
+    getEquip: (ocid) => call("/character/item-equipment", { ocid }),
+  };
+})();
+
+/* =========================================================
+ * UI
+ * ========================================================= */
+const $ = (id) => document.getElementById(id);
+const state = { statMap: null, build: "str", className: "", planKey: "", lastSim: null };
+
+/* ---------- 設定 ---------- */
+$("apiKey").value = localStorage.getItem("msec_key") || "";
+$("apiBase").value = localStorage.getItem("msec_base") || "";
+$("btnSaveKey").onclick = () => {
+  localStorage.setItem("msec_key", $("apiKey").value.trim());
+  const b = $("apiBase").value.trim();
+  if (b) localStorage.setItem("msec_base", b); else localStorage.removeItem("msec_base");
+  $("btnSaveKey").textContent = "已儲存 ✓";
+  setTimeout(() => $("btnSaveKey").textContent = "儲存", 1500);
+};
+
+/* ---------- 查詢 ---------- */
+$("btnSearch").onclick = search;
+$("charName").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+
+async function search() {
+  const name = $("charName").value.trim();
+  const errBox = $("searchErr");
+  errBox.classList.add("hidden");
+  if (!name) return showErr("請輸入角色名稱");
+  if (!localStorage.getItem("msec_key")) return showErr("請先於上方儲存 API Key");
+
+  $("btnSearch").disabled = true;
+  $("btnSearch").textContent = "查詢中…";
+  try {
+    const { ocid } = await Api.getOcid(name);
+    const [basic, stat, equip] = await Promise.all([
+      Api.getBasic(ocid), Api.getStat(ocid), Api.getEquip(ocid),
+    ]);
+    renderCharacter(basic, stat);
+    renderEquipment(equip);
+    setupSimulation(basic, stat);
+  } catch (e) {
+    showErr(e.message);
+  } finally {
+    $("btnSearch").disabled = false;
+    $("btnSearch").textContent = "查詢";
+  }
+
+  function showErr(msg) { errBox.textContent = msg; errBox.classList.remove("hidden"); }
+}
+
+/* ---------- 角色資訊 ---------- */
+const SHOW_STATS = [
+  "戰鬥力", "最低屬性攻擊力", "最高屬性攻擊力",
+  "傷害", "BOSS怪物傷害", "一般怪物傷害", "最終傷害",
+  "爆擊機率", "爆擊傷害", "無視防禦率", "無視屬性耐性",
+  "攻擊力", "魔法攻擊力",
+  "STR", "DEX", "INT", "LUK", "HP", "MP",
+  "星力", "神秘力量", "真實之力",
+  "冷卻時間減少(秒)", "冷卻時間減少(％)", "未套用冷卻時間",
+  "道具掉落率", "楓幣獲得量", "獲得額外經驗值", "Buff持續時間",
+  "狀態異常追加傷害", "狀態異常耐性", "攻擊速度", "武器熟練度",
+];
+const PCT_STATS = new Set([
+  "傷害", "BOSS怪物傷害", "一般怪物傷害", "最終傷害",
+  "爆擊機率", "爆擊傷害", "無視防禦率", "無視屬性耐性",
+  "冷卻時間減少(％)", "未套用冷卻時間",
+  "道具掉落率", "楓幣獲得量", "獲得額外經驗值", "Buff持續時間",
+  "狀態異常追加傷害", "武器熟練度",
+]);
+const SEC_STATS = new Set(["冷卻時間減少(秒)"]);
+
+function fmtStat(k, v) {
+  if (PCT_STATS.has(k)) return `${v}%`;
+  if (SEC_STATS.has(k)) return `${v} 秒`;
+  return v.toLocaleString();
+}
+
+function renderCharacter(basic, stat) {
+  $("cardChar").classList.remove("hidden");
+  $("charImg").src = basic.character_image || "";
+  $("cName").textContent = basic.character_name;
+  $("cClass").textContent = `Lv.${basic.character_level} ${basic.character_class}`;
+  $("cWorld").textContent = basic.world_name || "";
+  $("cDate").textContent = stat.date ? `資料日期:${String(stat.date).slice(0, 10)}` : "";
+
+  const m = Engine.parseFinalStat(stat.final_stat);
+  state.statMap = m;
+  state.className = basic.character_class || "";
+
+  const grid = $("statGrid");
+  grid.innerHTML = "";
+  const shown = new Set();
+  for (const k of SHOW_STATS) {
+    if (m[k] == null) continue;
+    shown.add(k);
+    grid.insertAdjacentHTML("beforeend",
+      `<div class="stat"><div class="k">${k}</div><div class="v">${fmtStat(k, m[k])}</div></div>`);
+  }
+  // 其餘未列出的數值收進「更多」
+  const rest = Object.keys(m).filter(k => !shown.has(k));
+  const more = $("statMore");
+  if (rest.length) {
+    more.classList.remove("hidden");
+    $("statMoreGrid").innerHTML = rest.map(k =>
+      `<div class="stat"><div class="k">${k}</div><div class="v">${fmtStat(k, m[k])}</div></div>`).join("");
+  } else {
+    more.classList.add("hidden");
+  }
+}
+
+/* ---------- 裝備 ---------- */
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// item_total_option 摘要要顯示的欄位
+const OPT_LABELS = [
+  ["str", "STR"], ["dex", "DEX"], ["int", "INT"], ["luk", "LUK"],
+  ["max_hp", "HP"], ["attack_power", "攻擊"], ["magic_power", "魔攻"],
+  ["all_stat", "全屬%"], ["boss_damage", "BOSS傷%"], ["damage", "傷害%"],
+  ["ignore_monster_armor", "無視%"], ["max_hp_rate", "HP%"],
+];
+
+function optionSummary(opt) {
+  if (!opt) return "";
+  const parts = [];
+  for (const [key, label] of OPT_LABELS) {
+    const v = parseFloat(opt[key]);
+    if (v) parts.push(`${label}+${v.toLocaleString()}`);
+  }
+  return parts.join(" / ");
+}
+
+// 機體資訊 / 裝備一覽 分頁切換
+$("tabBtnInfo").onclick = () => switchCharTab(true);
+$("tabBtnEquip").onclick = () => switchCharTab(false);
+function switchCharTab(showInfo) {
+  $("tabInfo").classList.toggle("hidden", !showInfo);
+  $("tabEquip").classList.toggle("hidden", showInfo);
+  $("tabBtnInfo").className = showInfo ? "" : "ghost";
+  $("tabBtnEquip").className = showInfo ? "ghost" : "";
+}
+
+function renderEquipment(equip) {
+  switchCharTab(true); // 查詢後預設顯示機體資訊
+
+  // preset 頁籤(圖騰、寶玉等只存在於「目前裝備」)
+  const presets = [
+    ["目前裝備", equip.item_equipment || []],
+    ["Preset 1", equip.item_equipment_preset_1 || []],
+    ["Preset 2", equip.item_equipment_preset_2 || []],
+    ["Preset 3", equip.item_equipment_preset_3 || []],
+  ].filter(([, list]) => list.length);
+
+  const tabs = $("presetTabs");
+  tabs.innerHTML = "";
+  presets.forEach(([label, list], i) => {
+    const active = (label === "目前裝備");
+    const btn = document.createElement("button");
+    btn.className = active ? "" : "ghost";
+    btn.textContent = `${label} (${list.length})`;
+    btn.onclick = () => {
+      [...tabs.children].forEach(b => b.className = "ghost");
+      btn.className = "";
+      renderEquipList(list);
+    };
+    tabs.appendChild(btn);
+    if (active || (i === 0 && presets.length === 1)) renderEquipList(list);
+  });
+  if (equip.preset_no != null)
+    $("equipCount").textContent = `(套用中 Preset ${equip.preset_no})`;
+}
+
+function renderEquipList(items) {
+  const grid = $("equipGrid");
+  grid.innerHTML = "";
+
+  for (const it of items) {
+    const star = parseInt(it.starforce || "0", 10);
+    const scroll = parseInt(it.scroll_upgrade || "0", 10);
+    const pots = [it.potential_option_1, it.potential_option_2, it.potential_option_3].filter(Boolean);
+    const adds = [it.additional_potential_option_1, it.additional_potential_option_2, it.additional_potential_option_3].filter(Boolean);
+    const grade = it.potential_option_grade;
+    const summary = optionSummary(it.item_total_option);
+
+    let html = `<div class="equip">
+      <div class="slot">${esc(it.item_equipment_slot || "")}</div>
+      <div class="hdr">`;
+    if (it.item_icon) html += `<img class="icon" src="${esc(it.item_icon)}" alt="" loading="lazy">`;
+    html += `<div class="nm">${esc(it.item_name || "未知裝備")}`;
+    if (star > 0) html += ` <span class="star">★${star}</span>`;
+    if (scroll > 0) html += ` <span class="scroll">+${scroll}</span>`;
+    html += `</div></div>`;
+    if (summary) html += `<div class="opts">${esc(summary)}</div>`;
+    if (grade && grade !== "None")
+      html += `<div class="pot"><b class="grade-${esc(grade)}">[${esc(grade)}]</b> ${pots.map(esc).join("<br>")}</div>`;
+    if (adds.length && it.additional_potential_option_grade && it.additional_potential_option_grade !== "None")
+      html += `<div class="pot"><b class="grade-${esc(it.additional_potential_option_grade)}">[附加 ${esc(it.additional_potential_option_grade)}]</b> ${adds.map(esc).join("<br>")}</div>`;
+    if (it.soul_name)
+      html += `<div class="pot"><b>[靈魂]</b> ${esc(it.soul_name)}${it.soul_option ? `:${esc(it.soul_option)}` : ""}</div>`;
+    html += `</div>`;
+    grid.insertAdjacentHTML("beforeend", html);
+  }
+}
+
+/* ---------- 模擬 ---------- */
+const BASE_FIELDS = [
+  ["build",      "職業體系",             "select"],
+  ["mainFinal",  "主屬(最終值)",         "num"],
+  ["minorFinal", "副屬(最終值)",         "num"],
+  ["attack",     "攻擊力(最終值)",       "num"],
+  ["dmg",        "傷害%",                "num"],
+  ["boss",       "BOSS傷%",              "num"],
+  ["crit",       "爆擊傷害%",            "num"],
+  ["fd",         "最終傷害%",            "num"],
+  ["ignore",     "無視防禦%",            "num"],
+  ["bossPdr",    "目標BOSS防禦%",        "num"],
+];
+const MANUAL_FIELDS = [
+  ["attackPct",   "攻擊%"],
+  ["mainPct",     "主屬%"],
+  ["mainUnique",  "不吃%主屬"],
+  ["minorPct",    "副屬%"],
+  ["minorUnique", "不吃%副屬"],
+];
+const DELTA_FIELDS = [
+  ["mainFlat",    "主屬 ±(吃%)"],
+  ["mainPct",     "主屬 ±%"],
+  ["mainUnique",  "不吃%主屬 ±"],
+  ["minorFlat",   "副屬 ±(吃%)"],
+  ["minorPct",    "副屬 ±%"],
+  ["minorUnique", "不吃%副屬 ±"],
+  ["attackFlat",  "攻擊力 ±"],
+  ["attackPct",   "攻擊 ±%"],
+  ["dmg",         "傷害 ±%"],
+  ["boss",        "BOSS傷 ±%"],
+  ["crit",        "爆傷 ±%"],
+  ["ignore",      "無視防禦 ±%(乘算)"],
+];
+const FACTOR_LABELS = {
+  attribute: "屬性", attackFlat: "攻擊力", attackPct: "攻擊%",
+  dmgBoss: "傷害+BOSS", crit: "爆傷", finalDmg: "終傷", ignore: "無視防禦",
+};
+
+function setupSimulation(basic, stat) {
+  $("cardManual").classList.remove("hidden");
+  $("cardSim").classList.remove("hidden");
+  $("cardPlans").classList.remove("hidden");
+  $("resultBox").classList.add("hidden");
+  state.planKey = "msec_plans_" + (basic.character_name || "");
+  state.lastSim = null;
+  $("btnSavePlan").disabled = true;
+  renderPlans();
+  const m = state.statMap;
+  const build = Engine.detectBuild(state.className);
+  state.build = build;
+  const B = Engine.BUILDS;
+
+  // 基準值欄位
+  const bg = $("baseGrid");
+  bg.innerHTML = "";
+  for (const [id, label, type] of BASE_FIELDS) {
+    if (type === "select") {
+      const opts = Object.entries(B).map(([k, v]) =>
+        `<option value="${k}" ${k === build ? "selected" : ""}>${v.label}</option>`).join("");
+      bg.insertAdjacentHTML("beforeend",
+        `<div class="field"><label>${label}(自動判定,可修改)</label><select id="base_${id}">${opts}</select></div>`);
+    } else {
+      bg.insertAdjacentHTML("beforeend",
+        `<div class="field"><label>${label}</label><input type="number" step="any" id="base_${id}"></div>`);
+    }
+  }
+  $("base_build").onchange = fillBaseline;
+  fillBaseline();
+
+  function fillBaseline() {
+    const bk = $("base_build").value;
+    const def = B[bk];
+    const isMage = bk === "int";
+    const atk = isMage
+      ? (m["魔法攻擊力"] || m["攻擊力"] || 0)
+      : (m["攻擊力"] || m["魔法攻擊力"] || 0);
+    setV("mainFinal", Engine.sumStats(m, def.main));
+    setV("minorFinal", Engine.sumStats(m, def.minor));
+    setV("attack", atk);
+    setV("dmg", m["傷害"] || 0);
+    setV("boss", m["BOSS怪物傷害"] || 0);
+    setV("crit", m["爆擊傷害"] || 0);
+    setV("fd", m["最終傷害"] || 0);
+    setV("ignore", m["無視防禦率"] || 0);
+    setV("bossPdr", 300);
+    updateDerivedClear();
+    function setV(id, v) { $("base_" + id).value = v; }
+  }
+
+  // 手動填入欄位(依角色名記憶)
+  const mg = $("manualGrid");
+  mg.innerHTML = "";
+  const saveKey = "msec_manual_" + (basic.character_name || "");
+  const saved = JSON.parse(localStorage.getItem(saveKey) || "{}");
+  for (const [id, label] of MANUAL_FIELDS) {
+    mg.insertAdjacentHTML("beforeend",
+      `<div class="field"><label>${label}</label><input type="number" step="any" id="manual_${id}" placeholder="0"></div>`);
+    if (saved[id] != null) $("manual_" + id).value = saved[id];
+  }
+  for (const [id] of MANUAL_FIELDS) {
+    $("manual_" + id).addEventListener("input", () => {
+      const data = {};
+      for (const [i2] of MANUAL_FIELDS) {
+        const v = $("manual_" + i2).value;
+        if (v !== "") data[i2] = v;
+      }
+      localStorage.setItem(saveKey, JSON.stringify(data));
+      updateDerivedClear();
+    });
+  }
+  $("base_mainFinal").addEventListener("input", updateDerivedClear);
+  $("base_minorFinal").addEventListener("input", updateDerivedClear);
+  updateDerivedClear();
+
+  function updateDerivedClear() {
+    const gv = (id) => parseFloat(($(id) || {}).value) || 0;
+    const mc = Engine.deriveClear(gv("base_mainFinal"), gv("manual_mainPct") / 100, gv("manual_mainUnique"));
+    const nc = Engine.deriveClear(gv("base_minorFinal"), gv("manual_minorPct") / 100, gv("manual_minorUnique"));
+    $("derivedClear").textContent =
+      `反推裸值 → 主屬(吃%):${Math.round(mc).toLocaleString()}、副屬(吃%):${Math.round(nc).toLocaleString()}(最終值 = 裸值×(1+屬%) + 不吃%值)`;
+  }
+
+  // 變化量欄位
+  const dg = $("deltaGrid");
+  dg.innerHTML = "";
+  for (const [id, label] of DELTA_FIELDS)
+    dg.insertAdjacentHTML("beforeend",
+      `<div class="field"><label>${label}</label><input type="number" step="any" id="delta_${id}" placeholder="0"></div>`);
+
+  // 終傷即時預覽
+  const fdPreview = () => {
+    const from = parseFloat($("delta_fdFrom").value) || 0;
+    const to = parseFloat($("delta_fdTo").value) || 0;
+    const el = $("fdPreview");
+    if (!from && !to) { el.textContent = ""; return; }
+    const ratio = (1 + to / 100) / (1 + from / 100);
+    const panelOld = parseFloat($("base_fd").value) || 0;
+    const panelNew = (1 + panelOld / 100) * ratio - 1;
+    el.textContent = `終傷增幅 ×${ratio.toFixed(4)}(${ratio >= 1 ? "+" : ""}${((ratio - 1) * 100).toFixed(2)}%);面板終傷 ${panelOld}% → ${(panelNew * 100).toFixed(2)}%`;
+  };
+  $("delta_fdFrom").oninput = fdPreview;
+  $("delta_fdTo").oninput = fdPreview;
+  fdPreview();
+
+  $("btnCalc").onclick = runSimulation;
+  $("btnResetDelta").onclick = () => {
+    for (const [id] of DELTA_FIELDS) $("delta_" + id).value = "";
+    $("delta_fdFrom").value = "";
+    $("delta_fdTo").value = "";
+    fdPreview();
+    $("resultBox").classList.add("hidden");
+  };
+}
+
+function runSimulation() {
+  const gv = (id) => parseFloat($(id).value) || 0;
+  const pct = (v) => v / 100;
+
+  const baseline = {
+    build:       $("base_build").value,
+    mainFinal:   gv("base_mainFinal"),
+    mainPct:     pct(gv("manual_mainPct")),
+    mainUnique:  gv("manual_mainUnique"),
+    minorFinal:  gv("base_minorFinal"),
+    minorPct:    pct(gv("manual_minorPct")),
+    minorUnique: gv("manual_minorUnique"),
+    attack:      gv("base_attack"),
+    attackPct:   pct(gv("manual_attackPct")),
+    dmg:         pct(gv("base_dmg")),
+    boss:        pct(gv("base_boss")),
+    crit:        pct(gv("base_crit")),
+    fd:          pct(gv("base_fd")),
+    ignore:      pct(gv("base_ignore")),
+    bossPdr:     pct(gv("base_bossPdr")),
+  };
+  const delta = {
+    mainFlat:    gv("delta_mainFlat"),
+    mainPct:     pct(gv("delta_mainPct")),
+    mainUnique:  gv("delta_mainUnique"),
+    minorFlat:   gv("delta_minorFlat"),
+    minorPct:    pct(gv("delta_minorPct")),
+    minorUnique: gv("delta_minorUnique"),
+    attackFlat:  gv("delta_attackFlat"),
+    attackPct:   pct(gv("delta_attackPct")),
+    dmg:         pct(gv("delta_dmg")),
+    boss:        pct(gv("delta_boss")),
+    crit:        pct(gv("delta_crit")),
+    ignore:      pct(gv("delta_ignore")),
+    fdFrom:      pct(gv("delta_fdFrom")),
+    fdTo:        pct(gv("delta_fdTo")),
+  };
+
+  const { factors, total } = Engine.simulate(baseline, delta);
+  const box = $("resultBox");
+  box.classList.remove("hidden");
+
+  const totalPct = (total - 1) * 100;
+  const t = $("resultTotal");
+  t.textContent = `${totalPct >= 0 ? "+" : ""}${totalPct.toFixed(2)}%`;
+  t.className = "total " + (totalPct >= 0 ? "up" : "down");
+
+  const bd = $("breakdown");
+  bd.innerHTML = "";
+  for (const [k, label] of Object.entries(FACTOR_LABELS)) {
+    const p = (factors[k] - 1) * 100;
+    if (Math.abs(p) < 0.0001) continue;
+    bd.insertAdjacentHTML("beforeend",
+      `<div class="bd"><div class="k">${label}</div><div class="v ${p >= 0 ? "up" : "down"}">${p >= 0 ? "+" : ""}${p.toFixed(2)}%</div></div>`);
+  }
+  if (!bd.children.length)
+    bd.innerHTML = `<div class="bd"><div class="k">無變化</div><div class="v">±0.00%</div></div>`;
+
+  // 記錄本次結果供「儲存方案」使用
+  const rawDelta = {};
+  for (const [id] of DELTA_FIELDS) rawDelta[id] = $("delta_" + id).value;
+  rawDelta.fdFrom = $("delta_fdFrom").value;
+  rawDelta.fdTo = $("delta_fdTo").value;
+  state.lastSim = { totalPct, rawDelta, ts: Date.now() };
+  $("btnSavePlan").disabled = false;
+}
+
+/* ---------- 儲存方案 ---------- */
+const DELTA_LABELS = Object.fromEntries(DELTA_FIELDS);
+
+function loadPlans() {
+  try { return JSON.parse(localStorage.getItem(state.planKey) || "[]"); }
+  catch (_) { return []; }
+}
+
+function deltaDescription(rawDelta) {
+  const parts = [];
+  for (const [id, label] of DELTA_FIELDS) {
+    const v = parseFloat(rawDelta[id]);
+    if (v) parts.push(`${label.replace(/ ±.*$/, "")} ${v > 0 ? "+" : ""}${v}${label.includes("±%") ? "%" : ""}`);
+  }
+  const from = parseFloat(rawDelta.fdFrom) || 0, to = parseFloat(rawDelta.fdTo) || 0;
+  if (from || to) parts.push(`終傷 ${from}%→${to}%`);
+  return parts.join("、") || "(無變化量)";
+}
+
+$("btnSavePlan").onclick = () => {
+  if (!state.lastSim) return;
+  const name = $("planName").value.trim() || `方案 ${new Date().toLocaleString("zh-TW", { hour12: false })}`;
+  const costV = parseFloat($("planCost").value);
+  const plans = loadPlans();
+  plans.push({ name, totalPct: state.lastSim.totalPct, rawDelta: state.lastSim.rawDelta,
+               cost: Number.isFinite(costV) && costV > 0 ? costV : null,
+               ts: Date.now() + Math.random() });
+  localStorage.setItem(state.planKey, JSON.stringify(plans));
+  $("planName").value = "";
+  $("planCost").value = "";
+  renderPlans();
+};
+
+// 每 1% 增幅的成本(CP 指標,越低越好);無成本或增幅≤0 → null
+function unitCost(p) {
+  if (p.cost == null || !(p.totalPct > 0)) return null;
+  return p.cost / p.totalPct;
+}
+
+$("sortPct").onclick = () => setPlanSort("pct");
+$("sortCp").onclick = () => setPlanSort("cp");
+function setPlanSort(mode) {
+  state.planSort = mode;
+  $("sortPct").className = mode === "pct" ? "" : "ghost";
+  $("sortCp").className = mode === "cp" ? "" : "ghost";
+  renderPlans();
+}
+
+function renderPlans() {
+  const list = $("planList");
+  const mode = state.planSort || "pct";
+  const plans = loadPlans().slice().sort((a, b) => {
+    if (mode === "cp") {
+      const ua = unitCost(a), ub = unitCost(b);
+      if (ua == null && ub == null) return b.totalPct - a.totalPct;
+      if (ua == null) return 1;   // 無成本者排後
+      if (ub == null) return -1;
+      return ua - ub;             // 每1%成本越低越前
+    }
+    return b.totalPct - a.totalPct;
+  });
+  list.innerHTML = "";
+  if (!plans.length) {
+    $("planHint").classList.remove("hidden");
+    return;
+  }
+  $("planHint").classList.add("hidden");
+  plans.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.className = "plan";
+    const cls = p.totalPct >= 0 ? "up" : "down";
+    const uc = unitCost(p);
+    const isBest = i === 0 && plans.length > 1 && (mode === "pct" || uc != null);
+    const bestLabel = mode === "cp" ? "CP值最高" : "效益最高";
+    const costText = p.cost != null
+      ? `成本 ${p.cost.toLocaleString()}${uc != null ? `|每1% ≈ ${uc.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : ""}`
+      : "未填成本";
+    row.innerHTML =
+      `<div class="rank">#${i + 1}</div>
+       <div class="pname">${esc(p.name)}${isBest ? ` <span class="best">${bestLabel}</span>` : ""}</div>
+       <div class="pcost">${esc(costText)}</div>
+       <div class="pval ${cls}">${p.totalPct >= 0 ? "+" : ""}${p.totalPct.toFixed(2)}%</div>
+       <button class="ghost" data-act="load">載入</button>
+       <button class="ghost" data-act="del" style="color:var(--bad);border-color:var(--bad)">刪除</button>
+       <div class="pdesc">${esc(deltaDescription(p.rawDelta || {}))}</div>`;
+    row.querySelector('[data-act="load"]').onclick = () => loadPlan(p);
+    row.querySelector('[data-act="del"]').onclick = () => deletePlan(p.ts);
+    list.appendChild(row);
+  });
+}
+
+function loadPlan(p) {
+  const rd = p.rawDelta || {};
+  for (const [id] of DELTA_FIELDS) $("delta_" + id).value = rd[id] || "";
+  $("delta_fdFrom").value = rd.fdFrom || "";
+  $("delta_fdTo").value = rd.fdTo || "";
+  $("delta_fdFrom").dispatchEvent(new Event("input")); // 更新終傷預覽
+  runSimulation();
+  $("cardSim").scrollIntoView({ behavior: "smooth" });
+}
+
+function deletePlan(ts) {
+  const plans = loadPlans().filter(p => p.ts !== ts);
+  localStorage.setItem(state.planKey, JSON.stringify(plans));
+  renderPlans();
+}
+</script>
+<!-- v0.3 -->
+</body>
+</html>
