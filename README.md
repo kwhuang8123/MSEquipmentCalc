@@ -19,8 +19,34 @@ python -m http.server 8000
 ## 若遇到 CORS 錯誤
 
 Nexon API 若不允許瀏覽器直連,查詢會顯示連線失敗。解法:在「進階:CORS Proxy 設定」
-填入自架 proxy 位址(例如 Cloudflare Worker,單純轉發請求與 `x-nxopen-api-key` header 即可)。
-後續正式版預計改為伺服器端持有 Key 的架構。
+填入自架 proxy 位址(見下方 Worker 部署)。
+
+## 部署到 GitHub Pages(站長提供 Key,訪客免填)
+
+**重點:key 絕不能放進 GitHub Pages。** 靜態網站所有程式碼都是公開的,
+key 寫進前端等於公開送人,額度會被盜刷、key 可能被停用。正確架構:
+
+```
+訪客瀏覽器 → GitHub Pages(純前端) → Cloudflare Worker(保管 key) → Nexon API
+```
+
+步驟:
+
+1. **Nexon**:於 [openapi.nexon.com](https://openapi.nexon.com/my-application/) 註冊應用程式取得 live key。
+   額度不夠可在 My Page 申請 service 提額。注意條款:資料至少每 30 天要更新。
+2. **Cloudflare Worker**(免費 100k 請求/日):
+   - dash.cloudflare.com → Workers → Create Worker,貼上 `cloudflare-worker.js` 內容
+   - Settings → Variables → 新增 **Secret** `NEXON_API_KEY` = 你的 key(選加密,不要用明文變數)
+   - 把程式碼裡 `ALLOW_ORIGIN` 改成 `https://你的帳號.github.io`
+   - 記下 Worker 網址(`https://xxx.你的帳號.workers.dev`)
+3. **前端**:`index.html` 內 `Api` 模組開頭的 `SITE_PROXY` 填入 Worker 網址,訪客即免填 key。
+4. **GitHub Pages**:repo → Settings → Pages → Deploy from branch,把 `index.html` 推上去即可。
+
+建議的額外防護(key 現在等於公開服務):
+
+- Worker 已內建:端點白名單(只放行 4 個用到的 API)、CORS 限定來源網域(不做快取,API 約每 20 分鐘刷新,直接透傳最新資料)
+- Cloudflare 免費版可再加 Rate Limiting 規則(WAF → Rate limiting rules),限制單一 IP 請求頻率
+- 定期在 Nexon OpenAPI 的 Analytics Dashboard 看用量,異常再收緊
 
 ## 計算模型
 
@@ -52,7 +78,7 @@ Nexon API 若不允許瀏覽器直連,查詢會顯示連線失敗。解法:在�
 爆擊機率/星力/神秘力量/真實之力/冷卻/掉寶等完整數值面板(次要數值收於「更多數值」)、
 裝備支援 Preset 頁籤(圖騰與寶玉僅存在於「目前裝備」)。
 
-注意:API 資料為每日快照,非即時;每組 Key 有請求額度上限。
+注意:API 資料約每 20 分鐘刷新,非完全即時;每組 Key 有請求額度上限。
 
 ## 已知限制 / 後續規劃
 

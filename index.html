@@ -121,29 +121,31 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
 
   <!-- API 設定 -->
   <div class="card" id="cardKey">
-    <h2>① API 設定</h2>
-    <div class="row">
-      <div class="field" style="flex:3">
-        <label>NEXON OpenAPI Key(僅存於你的瀏覽器 localStorage,不會上傳)</label>
-        <input type="password" id="apiKey" placeholder="live_xxxxxxxx...">
-      </div>
-      <button id="btnSaveKey">儲存</button>
-    </div>
-    <details class="adv">
-      <summary>進階:CORS Proxy 設定</summary>
-      <div class="row" style="margin-top:8px">
+    <h2 id="hKey"><span class="stepno"></span><span id="hKeyTitle">API 設定</span></h2>
+    <div id="keyBody">
+      <div class="row">
         <div class="field" style="flex:3">
-          <label>API Base URL(若瀏覽器直連被 CORS 擋下,填入自架 proxy 位址)</label>
-          <input type="text" id="apiBase" placeholder="https://open.api.nexon.com">
+          <label>NEXON OpenAPI Key(僅存於你的瀏覽器 localStorage,不會上傳)</label>
+          <input type="password" id="apiKey" placeholder="live_xxxxxxxx...">
         </div>
+        <button id="btnSaveKey">儲存</button>
       </div>
-    </details>
-    <div class="hint">申請 Key:<a href="https://openapi.nexon.com/my-application/" target="_blank" rel="noopener">openapi.nexon.com → Register Application</a>(選 MapleStory TW)</div>
+      <details class="adv">
+        <summary>進階:CORS Proxy 設定</summary>
+        <div class="row" style="margin-top:8px">
+          <div class="field" style="flex:3">
+            <label>API Base URL(若瀏覽器直連被 CORS 擋下,填入自架 proxy 位址)</label>
+            <input type="text" id="apiBase" placeholder="https://open.api.nexon.com">
+          </div>
+        </div>
+      </details>
+      <div class="hint">申請 Key:<a href="https://openapi.nexon.com/my-application/" target="_blank" rel="noopener">openapi.nexon.com → Register Application</a>(選 MapleStory TW)</div>
+    </div>
   </div>
 
   <!-- 查詢 -->
   <div class="card">
-    <h2>② 角色查詢</h2>
+    <h2 id="hSearch"><span class="stepno"></span>角色查詢</h2>
     <div class="row">
       <div class="field" style="flex:2">
         <label>角色名稱</label>
@@ -156,7 +158,7 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
 
   <!-- 角色資訊(機體 / 裝備 分頁) -->
   <div class="card hidden" id="cardChar">
-    <h2>③ 角色機體</h2>
+    <h2 id="hChar"><span class="stepno"></span>角色機體</h2>
     <div class="row" style="margin-bottom:12px">
       <button id="tabBtnInfo">機體資訊</button>
       <button id="tabBtnEquip" class="ghost">裝備一覽 <span id="equipCount"></span></button>
@@ -185,7 +187,7 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
 
   <!-- 手動填入 -->
   <div class="card hidden" id="cardManual">
-    <h2>④ 手動填入 <span class="baseline-tag">API 無法取得的數值</span></h2>
+    <h2 id="hManual"><span class="stepno"></span>手動填入 <span class="baseline-tag">API 無法取得的數值</span></h2>
     <div style="margin-bottom:6px;font-size:.85rem;color:var(--muted)">請照面板/裝備自行加總;會依角色名記住填寫值</div>
     <div class="simgrid" id="manualGrid"></div>
     <div class="hint" id="derivedClear"></div>
@@ -193,7 +195,7 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
 
   <!-- 模擬 -->
   <div class="card hidden" id="cardSim">
-    <h2>⑤ 模擬設定 <span class="baseline-tag">基準值可手動修正</span></h2>
+    <h2 id="hSim"><span class="stepno"></span>模擬設定 <span class="baseline-tag">基準值可手動修正</span></h2>
 
     <div style="margin-bottom:6px;font-size:.85rem;color:var(--muted)">基準值(自動帶入 API 資料)</div>
     <div class="simgrid" id="baseGrid"></div>
@@ -237,7 +239,7 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
 
   <!-- 儲存方案 -->
   <div class="card hidden" id="cardPlans">
-    <h2>⑥ 儲存方案 <span style="font-size:.75rem;color:var(--muted)">比較下一步投資裝備的效益</span></h2>
+    <h2 id="hPlans"><span class="stepno"></span>儲存方案 <span style="font-size:.75rem;color:var(--muted)">比較下一步投資裝備的效益</span></h2>
     <div class="row">
       <div class="field" style="flex:2">
         <label>方案名稱(例:武器上22星、換艾特倫手套)</label>
@@ -399,18 +401,25 @@ const Engine = (() => {
  * API 客戶端
  * ========================================================= */
 const Api = (() => {
-  const DEFAULT_BASE = "https://open.api.nexon.com";
+  // ★ 站長部署用:填入你的 proxy 網址(例如 Cloudflare Worker),
+  //   訪客即可免填 API Key。留空 = 使用者自備 key 直連 Nexon。
+  const SITE_PROXY = "https://msequipmentcalc.maluku1125.workers.dev";
+
+  const DEFAULT_BASE = SITE_PROXY || "https://open.api.nexon.com";
   const GAME = "maplestorytw";
 
   function base() { return (localStorage.getItem("msec_base") || DEFAULT_BASE).replace(/\/+$/, ""); }
   function key()  { return localStorage.getItem("msec_key") || ""; }
+  function needKey() { return !SITE_PROXY && !localStorage.getItem("msec_base"); }
 
   async function call(path, params) {
     const url = new URL(`${base()}/${GAME}/v1${path}`);
     for (const [k, v] of Object.entries(params || {})) url.searchParams.set(k, v);
+    const headers = {};
+    if (key()) headers["x-nxopen-api-key"] = key(); // proxy 模式可不帶 key
     let res;
     try {
-      res = await fetch(url, { headers: { "x-nxopen-api-key": key() } });
+      res = await fetch(url, { headers });
     } catch (e) {
       throw new Error("連線失敗。可能原因:網路問題,或 Nexon API 不允許瀏覽器直連(CORS)。\n若為 CORS 問題,請在「進階:CORS Proxy 設定」填入自架 proxy 位址。");
     }
@@ -429,7 +438,7 @@ const Api = (() => {
   }
 
   return {
-    DEFAULT_BASE,
+    DEFAULT_BASE, needKey, SITE_PROXY,
     getOcid:  (name) => call("/id", { character_name: name }),
     getBasic: (ocid) => call("/character/basic", { ocid }),
     getStat:  (ocid) => call("/character/stat", { ocid }),
@@ -472,6 +481,23 @@ function applyTheme(key) {
   applyTheme(localStorage.getItem("msec_theme") || "ocean");
 }
 
+/* ---------- 步驟編號與 API 設定卡 ---------- */
+{
+  const NUM = ["①", "②", "③", "④", "⑤", "⑥"];
+  const steps = ["hKey", "hSearch", "hChar", "hManual", "hSim", "hPlans"];
+  let order = steps;
+  if (Api.SITE_PROXY) {
+    // 已內建站方 proxy:第一步免填,收合並移出編號
+    order = steps.slice(1);
+    $("hKeyTitle").textContent = "API 設定(本站已內建,一般使用者不需填寫;點此展開)";
+    $("hKey").style.cursor = "pointer";
+    $("hKey").style.fontSize = ".85rem";
+    $("keyBody").classList.add("hidden");
+    $("hKey").onclick = () => $("keyBody").classList.toggle("hidden");
+  }
+  order.forEach((id, i) => $(id).querySelector(".stepno").textContent = NUM[i] + " ");
+}
+
 /* ---------- 設定 ---------- */
 $("apiKey").value = localStorage.getItem("msec_key") || "";
 $("apiBase").value = localStorage.getItem("msec_base") || "";
@@ -492,7 +518,8 @@ async function search() {
   const errBox = $("searchErr");
   errBox.classList.add("hidden");
   if (!name) return showErr("請輸入角色名稱");
-  if (!localStorage.getItem("msec_key")) return showErr("請先於上方儲存 API Key");
+  if (Api.needKey() && !localStorage.getItem("msec_key"))
+    return showErr("請先於上方儲存 API Key(或於進階設定填入 Proxy 網址)");
 
   $("btnSearch").disabled = true;
   $("btnSearch").textContent = "查詢中…";
