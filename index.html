@@ -798,7 +798,7 @@ const BUFF_DATA = {
     {"n": "實用的會心之眼", "e": {"crit": 8}},
     {"n": "一擊必殺(對軸)", "np": 1, "r": "傷害100%,對軸時等效 12%", "e": {"dmg": 12}},
     {"n": "一擊必殺(不對軸)", "np": 1, "r": "傷害100%,不對軸時等效 7.5%", "e": {"dmg": 7.5}},
-    {"n": "五轉共通被動技", "e": {"all": 66, "atk": 50, "crit": 8}},
+    {"n": "五轉共通被動技", "e": {"all": 66, "atk": 50}},
     {"n": "AUT滿等加成", "e": {"dmg": 20}},
     {"n": "公會的訣竅", "e": {"atk": 45, "all": 40}},
     {"n": "聯盟的意志", "e": {"all": 5, "atk": 5}},
@@ -997,10 +997,10 @@ const BuffUI = (() => {
       const on = !!state[key];
       const row = document.createElement("div");
       row.className = "buff" + (on ? " on" : "");
-      const top = effectAt(b, lv ? lv[lv.length - 1] : true);
-      const tip = Object.entries(top)
+      const shownLv = lv ? (Number(state[key]) || (cat === "pass" ? lv[0] : lv[lv.length - 1])) : true;
+      const tip = Object.entries(effectAt(b, shownLv))
         .map(([k, v]) => `${LABELS[k] || k}+${v}${PCT.has(k) ? "%" : ""}`).join(" / ");
-      row.title = (b.r ? b.r + " — " : "") + (lv ? `滿級:${tip}` : tip);
+      row.title = (b.r ? b.r + " — " : "") + (lv ? `Lv${shownLv}:${tip}` : tip);
       let html = `<input type="checkbox" ${on ? "checked" : ""}>
         <span class="bn">${esc(b.n)}${b.job ? ` <span class="bjob">${esc(b.job)}</span>` : ""}</span>`;
       if (b.np) html += `<span class="bnp" title="非常駐技能,以等效值計算">等效</span>`;
@@ -1008,7 +1008,8 @@ const BuffUI = (() => {
         `<option value="${l}" ${Number(state[key]) === l ? "selected" : ""}>Lv${l}</option>`).join("")}</select>`;
       row.innerHTML = html;
       const cb = row.querySelector("input"), sel = row.querySelector("select");
-      if (sel && !state[key]) sel.value = String(lv[lv.length - 1]);
+      // 傳授技能預設取最低級(Lv2;小偷的狡詐/實戰知識為 Lv6),其餘預設滿級
+      if (sel && !state[key]) sel.value = String(cat === "pass" ? lv[0] : lv[lv.length - 1]);
       const sync = () => {
         // 數量上限
         const cap = BUFF_LIMIT[cat];
