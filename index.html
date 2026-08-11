@@ -113,6 +113,11 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
 .buff .bjob{color:var(--muted);font-size:.68rem}
 .bgroup{font-size:.75rem;color:var(--accent);margin:12px 0 6px;padding-left:2px;border-left:3px solid var(--accent)}
 .bgroup:first-child{margin-top:0}
+/* 未填提示 */
+.warn{margin-top:12px;padding:9px 12px;border-radius:8px;font-size:.78rem;line-height:1.6;
+  color:var(--accent2);border:1px solid var(--accent2);background:var(--card2)}
+.warn b{color:var(--text)}
+input.unfilled{border-color:var(--accent2)}
 /* recent */
 .recent{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px}
 .recent .rlabel{font-size:.75rem;color:var(--muted)}
@@ -212,6 +217,7 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
     <h2 id="hManual"><span class="stepno"></span>手動填入 <span class="baseline-tag">API 無法取得的數值</span></h2>
     <div style="margin-bottom:6px;font-size:.85rem;color:var(--muted)">請照面板/裝備自行加總;會依角色名記住填寫值</div>
     <div class="simgrid" id="manualGrid"></div>
+    <div class="warn hidden" id="manualWarn"></div>
     <div class="hint" id="derivedClear"></div>
   </div>
 
@@ -866,7 +872,7 @@ const BUFF_EXCLUSIVE = [
   ["275等椅子", "榮譽靈藥"],
 ];
 // 各分類同時啟用上限
-const BUFF_LIMIT = { pass: 12 };
+const BUFF_LIMIT = { pass: 13 };
 
 const BuffUI = (() => {
   const CATS = [["skill", "技能"], ["pot", "藥水"], ["pass", "傳授技能"]];
@@ -1125,6 +1131,15 @@ const MANUAL_FIELDS = [
   ["minorUnique", "不吃%副屬"],
   ["burst",       "估計爆發占比%(10~90)"],
 ];
+// 未填時的影響說明
+const MANUAL_IMPACT = {
+  attackPct:   "「攻擊力 ±」的裸攻加成不會乘上攻擊%,增幅會被低估",
+  mainPct:     "主屬裸值無法反推,「主屬 ±%」會直接乘面板值而偏高",
+  mainUnique:  "不吃%的主屬(符文、悉法等)視為 0,裸值反推會偏高",
+  minorPct:    "副屬裸值無法反推,「副屬 ±%」會直接乘面板值而偏高",
+  minorUnique: "不吃%的副屬視為 0,裸值反推會偏高",
+  burst:       "規範戒指的等效攻擊%會算成 0(未啟用該戒指則可略過)",
+};
 const DELTA_FIELDS = [
   ["mainFlat",    "主屬 ±(吃%)"],
   ["mainPct",     "主屬 ±%"],
@@ -1233,6 +1248,7 @@ function setupSimulation(basic, stat) {
       }
       localStorage.setItem(saveKey, JSON.stringify(data));
       updateDerivedClear();
+      updateManualWarn();
       // 爆發占比會改變規範戒指的等效值;攻擊%會改變裸攻還原 → 皆需重算
       if (id === "burst") { BuffUI.refresh(); fillBaseline(); }
       if (id === "attackPct") fillBaseline();
@@ -1245,6 +1261,25 @@ function setupSimulation(basic, stat) {
   BuffUI.init(basic.character_name, m);
   fillBaseline();
   updateDerivedClear();
+  updateManualWarn();
+
+  // 未填欄位提示
+  function updateManualWarn() {
+    const empty = [];
+    for (const [id, label] of MANUAL_FIELDS) {
+      const el = $("manual_" + id);
+      const blank = !el || el.value.trim() === "";
+      if (el) el.classList.toggle("unfilled", blank);
+      if (blank) empty.push([id, label]);
+    }
+    const box = $("manualWarn");
+    if (!empty.length) { box.classList.add("hidden"); return; }
+    box.classList.remove("hidden");
+    box.innerHTML =
+      `⚠ 尚有 <b>${empty.length}</b> 項未填(視為 0),可能影響計算準確度:<br>` +
+      empty.map(([id, label]) =>
+        `・<b>${esc(label.replace(/%\(.*$/, "%"))}</b> — ${esc(MANUAL_IMPACT[id] || "")}`).join("<br>");
+  }
 
   function updateDerivedClear() {
     const gv = (id) => parseFloat(($(id) || {}).value) || 0;
