@@ -238,6 +238,7 @@ input.unfilled{border-color:var(--accent2)}
       <span class="hint" style="margin:0">切換不會清除勾選,隨時可切回熱機</span>
     </div>
     <div class="hint" id="buffSummary"></div>
+    <div class="warn hidden" id="burstDetail" style="color:var(--text)"></div>
   </div>
 
   <!-- 模擬 -->
@@ -275,6 +276,8 @@ input.unfilled{border-color:var(--accent2)}
       <button id="btnCalc">計算增幅</button>
       <button class="ghost" id="btnResetDelta">清空變化量</button>
     </div>
+
+    <div class="hint hidden" id="phaseInfo" style="margin-top:12px;color:var(--accent2)"></div>
 
     <div class="result hidden" id="resultBox">
       <div>總體變強:</div>
@@ -442,8 +445,36 @@ const Engine = (() => {
     return { factors: f, total };
   }
 
+  // 相對戰力(僅用於比較兩種狀態的傷害比例,非絕對傷害值)
+  function power(b) {
+    return attributePower(b.mainFinal, b.minorFinal, b.build)
+         * b.attack
+         * (1 + b.dmg + b.boss)
+         * (CRIT_BASE + b.crit)
+         * (1 + b.fd)
+         * defenseFactor(b.ignore, b.bossPdr);
+  }
+
+  /**
+   * 兩段加權模擬:爆發期(占比 p)與平時分別計算傷害後加權
+   *   總傷害 ∝ p × D_爆發 + (1-p) × D_平時
+   *   增幅 = [p·R·r_爆 + (1-p)·r_平] / [p·R + (1-p)],R = D_爆發/D_平時
+   * 這樣爆發專用 buff 之間的相乘效果只會落在爆發窗內,
+   * 不會像「等效常駐值」那樣把交叉項稀釋成 p²。
+   */
+  function simulateWeighted(normal, burst, delta, p) {
+    const rn = simulate(normal, delta);
+    if (!burst || !(p > 0)) return { factors: rn.factors, total: rn.total, normal: rn, burst: null, R: 1 };
+    const rb = simulate(burst, delta);
+    const R = power(burst) / power(normal);
+    const wOld = p * R + (1 - p);
+    const wNew = p * R * rb.total + (1 - p) * rn.total;
+    return { factors: rn.factors, total: wNew / wOld, normal: rn, burst: rb, R };
+  }
+
   return { BUILDS, detectBuild, parseFinalStat, sumStats, attributePower,
-           combineIgnore, defenseFactor, deriveClear, simulate, CRIT_BASE };
+           combineIgnore, defenseFactor, deriveClear, simulate, power,
+           simulateWeighted, CRIT_BASE };
 })();
 
 /* =========================================================
@@ -793,7 +824,8 @@ const BUFF_DATA = {
     {"n": "冠軍庇護:攻擊力", "step": {"atk": 5}, "max": 5},
     {"n": "冠軍庇護:無視防禦率", "step": {"ign": 2}, "max": 5},
     {"n": "永續戒指", "lv": {"1": {"dmg": 9, "atkP": 4}, "2": {"dmg": 18, "atkP": 6}, "3": {"dmg": 27, "atkP": 8}, "4": {"dmg": 36, "atkP": 10}, "5": {"dmg": 45, "atkP": 12}, "6": {"dmg": 54, "atkP": 14}}},
-    {"n": "規範戒指", "np": 1, "dyn": "burst", "lv": {"1": {"atkP": 17}, "2": {"atkP": 34}, "3": {"atkP": 51}, "4": {"atkP": 68}, "5": {"atkP": 68}, "6": {"atkP": 85}}},
+    {"n": "規範戒指", "burst": 1, "durLv": {"1": 9, "2": 11, "3": 13, "4": 15, "5": 20, "6": 20},
+     "lv": {"1": {"atkP": 17}, "2": {"atkP": 34}, "3": {"atkP": 51}, "4": {"atkP": 68}, "5": {"atkP": 68}, "6": {"atkP": 85}}},
     {"n": "神諭者的戒指", "lv": {"1": {"crit": 2}, "2": {"crit": 2}, "3": {"crit": 2}, "4": {"crit": 2}, "5": {"crit": 2}, "6": {"crit": 2}, "7": {"crit": 4}, "8": {"crit": 6}, "9": {"crit": 8}, "10": {"crit": 10}}},
     {"n": "凝聚的戒指", "step": {"crit": 2}, "max": 5},
     {"n": "夕陽的現身", "e": {"boss": 10}},
@@ -802,8 +834,8 @@ const BUFF_DATA = {
     {"n": "英雄回響", "e": {"atkP": 4}},
     {"n": "高級武器鍛鍊", "e": {"crit": 5}},
     {"n": "實用的會心之眼", "e": {"crit": 8}},
-    {"n": "一擊必殺(對軸)", "np": 1, "r": "傷害100%,對軸時等效 12%", "e": {"dmg": 12}},
-    {"n": "一擊必殺(不對軸)", "np": 1, "r": "傷害100%,不對軸時等效 7.5%", "e": {"dmg": 7.5}},
+    {"n": "一擊必殺(對軸)", "burst": 1, "dur": 4, "r": "傷害100%/4秒,對軸時落在爆發窗內", "e": {"dmg": 100}},
+    {"n": "一擊必殺(不對軸)", "np": 1, "r": "傷害100%,不對軸時以全時等效 7.5% 計", "e": {"dmg": 7.5}},
     {"n": "五轉共通被動技", "e": {"all": 66, "atk": 50}},
     {"n": "AUT滿等加成", "e": {"dmg": 20}},
     {"n": "公會的訣竅", "e": {"atk": 45, "all": 40}},
@@ -829,7 +861,7 @@ const BUFF_DATA = {
     {"n": "管理人的應援 - Boss傷害", "e": {"boss": 15}},
   ],
   pass: [
-    {"n": "靈魂契約", "job": "天使破壞者", "dyn": "soul", "r": "等效 = (10×加持持續倍率 ÷ 60) × 原始傷害%", "lv": {"2": {"dmg": 45}, "3": {"dmg": 60}}},
+    {"n": "靈魂契約", "job": "天使破壞者", "burst": 1, "durDyn": "soul", "lv": {"2": {"dmg": 45}, "3": {"dmg": 60}}},
     {"n": "惡魔之怒", "job": "惡魔殺手", "lv": {"2": {"boss": 15}, "3": {"boss": 20}}},
     {"n": "蒼刃傳授", "job": "劍豪", "lv": {"2": {"crit": 5}, "3": {"crit": 7}}},
     {"n": "紫扇傳授", "job": "陰陽師", "lv": {"2": {"dmg": 15}, "3": {"dmg": 20}}},
@@ -901,43 +933,77 @@ const BuffUI = (() => {
     return t ? Object.keys(t).map(Number).sort((a, c) => a - c) : null;
   };
 
-  // 動態占比:非常駐技能依實際觸發率折算
-  //  soul  = 靈魂契約:(10 × 加持持續倍率) ÷ 60秒冷卻
-  //  burst = 規範戒指:使用者填的「估計爆發占比」
-  function dynMul(b) {
-    if (b.dyn === "soul") {
-      const dur = ctx.buffDuration || 0;          // API「Buff持續時間」為 +N%
-      return (10 * (1 + dur / 100)) / 60;
-    }
-    if (b.dyn === "burst") {
-      const el = $("manual_burst");
-      const v = el ? parseFloat(el.value) : NaN;
-      return (Number.isFinite(v) ? Math.min(Math.max(v, 0), 100) : 0) / 100;
-    }
-    return 1;
-  }
-
   function effectAt(b, v) {
     const t = levelTable(b);
-    const raw = t ? (t[String(v)] || {}) : (b.e || {});
-    const mul = dynMul(b);
-    if (mul === 1) return raw;
-    const out = {};
-    for (const [k, n] of Object.entries(raw)) out[k] = Math.round(n * mul * 100) / 100;
-    return out;
+    return t ? (t[String(v)] || {}) : (b.e || {});
   }
 
-  // 加總啟用中的 buff(冷機狀態視為完全沒吃 buff,但勾選內容保留)
-  function totals() {
+  // 爆發窗假定長度(秒)
+  const BURST_WINDOW = 20;
+
+  // 技能持續秒數(靈魂契約依 API「Buff持續時間」動態計算)
+  function durationOf(b, v) {
+    if (b.durDyn === "soul") return 10 * (1 + (ctx.buffDuration || 0) / 100);
+    if (b.durLv) return b.durLv[String(v)] || BURST_WINDOW;
+    return b.dur || BURST_WINDOW;
+  }
+
+  function burstRatio() {
+    const el = $("manual_burst");
+    const v = el ? parseFloat(el.value) : NaN;
+    return (Number.isFinite(v) ? Math.min(Math.max(v, 0), 100) : 0) / 100;
+  }
+
+  /**
+   * 加總啟用中的 buff(冷機視為完全沒吃 buff,但勾選內容保留)
+   *   onlyBurst=true  → 爆發窗內的加成
+   *                     覆蓋率 = min(持續秒數, 20) ÷ 20
+   *   onlyBurst=false → 平時的加成:常駐 buff 全額
+   *                     + 爆發技能超出 20 秒、溢出到平砍環節的部分
+   *                     溢出率 = p × max(持續秒數−20, 0) ÷ (20 × (1−p))
+   */
+  function totals(onlyBurst) {
     const out = {};
     if (mode === "cold") return out;
+    const p = burstRatio();
     for (const [cat] of CATS)
       for (const b of BUFF_DATA[cat] || []) {
         const v = state[bid(cat, b)];
         if (!v) continue;
-        for (const [k, n] of Object.entries(effectAt(b, v))) out[k] = (out[k] || 0) + n;
+        const eff = effectAt(b, v);
+        let k;
+        if (b.burst) {
+          const D = durationOf(b, v);
+          k = onlyBurst
+            ? Math.min(D, BURST_WINDOW) / BURST_WINDOW
+            : (p > 0 && p < 1 ? p * Math.max(D - BURST_WINDOW, 0) / (BURST_WINDOW * (1 - p)) : 0);
+        } else {
+          k = onlyBurst ? 0 : 1;
+        }
+        if (!k) continue;
+        for (const [key, n] of Object.entries(eff)) out[key] = (out[key] || 0) + n * k;
       }
+    for (const key in out) out[key] = Math.round(out[key] * 100) / 100;
     return out;
+  }
+  const burstTotals = () => totals(true);
+  const hasBurst = () => Object.keys(burstTotals()).length > 0;
+
+  // 爆發技能明細(供介面顯示換算過程)
+  function burstDetail() {
+    const p = burstRatio(), rows = [];
+    for (const [cat] of CATS)
+      for (const b of BUFF_DATA[cat] || []) {
+        if (!b.burst) continue;
+        const v = state[bid(cat, b)];
+        if (!v) continue;
+        const D = durationOf(b, v);
+        const cover = Math.min(D, BURST_WINDOW) / BURST_WINDOW;
+        const spill = (p > 0 && p < 1) ? p * Math.max(D - BURST_WINDOW, 0) / (BURST_WINDOW * (1 - p)) : 0;
+        const eff = effectAt(b, v);
+        rows.push({ name: b.n, dur: Math.round(D * 10) / 10, cover, spill, eff });
+      }
+    return rows;
   }
 
   function render() {
@@ -1065,12 +1131,33 @@ const BuffUI = (() => {
         `冷機中:已保留 ${picked} 項勾選但不套用,增幅以未吃 buff 的面板為分母。`;
       return;
     }
-    const t = totals();
-    const parts = Object.entries(t).filter(([, v]) => v)
+    const fmt = (t) => Object.entries(t).filter(([, v]) => v)
       .map(([k, v]) => `${LABELS[k] || k} +${Math.round(v * 100) / 100}${PCT.has(k) ? "%" : ""}`);
-    $("buffSummary").textContent = parts.length
-      ? `熱機中(${picked} 項)合計:` + parts.join("、")
-      : "尚未勾選任何 Buff(增幅將以未吃 buff 的面板為分母)。";
+    const parts = fmt(totals(false)), bparts = fmt(burstTotals());
+    let msg = parts.length
+      ? `熱機中(${picked} 項)常駐合計:` + parts.join("、")
+      : "尚未勾選常駐 Buff(增幅將以未吃 buff 的面板為分母)。";
+    if (bparts.length) msg += `\n爆發窗內額外:` + bparts.join("、");
+    $("buffSummary").style.whiteSpace = "pre-line";
+    $("buffSummary").textContent = msg;
+
+    // 爆發技能換算明細
+    const rows = burstDetail(), box = $("burstDetail");
+    if (!rows.length || mode === "cold") { box.classList.add("hidden"); return; }
+    box.classList.remove("hidden");
+    const p = burstRatio();
+    const fmtEff = (e, k) => Object.entries(e)
+      .map(([s, n]) => `${LABELS[s] || s} ${Math.round(n * k * 100) / 100}${PCT.has(s) ? "%" : ""}`).join("、");
+    box.innerHTML =
+      `<b>爆發窗假定 ${BURST_WINDOW} 秒</b>　覆蓋率 = min(持續, ${BURST_WINDOW}) ÷ ${BURST_WINDOW}` +
+      `　溢出平砍 = p × max(持續−${BURST_WINDOW}, 0) ÷ (${BURST_WINDOW} × (1−p))　` +
+      `<span style="color:var(--muted)">p = 爆發占比 = ${(p * 100).toFixed(0)}%</span><br>` +
+      rows.map(r =>
+        `・<b>${esc(r.name)}</b> 持續 ${r.dur}s → 爆發窗覆蓋 ${(r.cover * 100).toFixed(0)}%:${esc(fmtEff(r.eff, r.cover))}` +
+        (r.spill > 0
+          ? `;溢出平砍 ${(r.spill * 100).toFixed(1)}%:${esc(fmtEff(r.eff, r.spill))}`
+          : (r.dur > BURST_WINDOW ? ";溢出部分需填爆發占比才會計入" : ""))
+      ).join("<br>");
   }
 
   function setMode(m) {
@@ -1099,15 +1186,13 @@ const BuffUI = (() => {
 
   // 「估計爆發占比」變動時重新整理(規範戒指為動態值)
   function refresh() {
-    const active = [...$("buffTabs").children].findIndex(b => b.className !== "ghost");
-    renderList(CATS[Math.max(active, 0)][0]);
-    summarize();
+    summarize();   // 爆發占比影響溢出率與明細,需重算摘要
   }
 
   $("btnBuffHot").onclick = () => setMode("hot");
   $("btnBuffCold").onclick = () => setMode("cold");
 
-  return { init, refresh, totals, LABELS };
+  return { init, refresh, totals, burstTotals, hasBurst, LABELS };
 })();
 
 /* ---------- 模擬 ---------- */
@@ -1138,7 +1223,7 @@ const MANUAL_IMPACT = {
   mainUnique:  "不吃%的主屬(符文、悉法等)視為 0,裸值反推會偏高",
   minorPct:    "副屬裸值無法反推,「副屬 ±%」會直接乘面板值而偏高",
   minorUnique: "不吃%的副屬視為 0,裸值反推會偏高",
-  burst:       "規範戒指的等效攻擊%會算成 0(未啟用該戒指則可略過)",
+  burst:       "爆發期加權失效,規範戒指/靈魂契約將完全不列入計算",
 };
 const DELTA_FIELDS = [
   ["mainFlat",    "主屬 ±(吃%)"],
@@ -1362,9 +1447,40 @@ function runSimulation() {
     fdTo:        pct(gv("delta_fdTo")),
   };
 
-  const { factors, total } = Engine.simulate(baseline, delta);
+  // 爆發期基準值:疊上爆發專用 buff(規範戒指、靈魂契約)
+  const bt = BuffUI.burstTotals();
+  const p = Math.min(Math.max(gv("manual_burst") / 100, 0), 1);
+  let burstBase = null;
+  if (Object.keys(bt).length && p > 0) {
+    const atkClear = baseline.attack / (1 + baseline.attackPct);
+    const nAtkP = baseline.attackPct + pct(bt.atkP || 0);
+    burstBase = {
+      ...baseline,
+      attackPct: nAtkP,
+      attack:    (atkClear + (bt.atk || 0)) * (1 + nAtkP),
+      dmg:       baseline.dmg + pct(bt.dmg || 0),
+      boss:      baseline.boss + pct(bt.boss || 0),
+      crit:      baseline.crit + pct(bt.crit || 0),
+      ignore:    Engine.combineIgnore(baseline.ignore, pct(bt.ign || 0)),
+    };
+  }
+
+  const res = Engine.simulateWeighted(baseline, burstBase, delta, p);
+  const { factors, total } = res;
   const box = $("resultBox");
   box.classList.remove("hidden");
+
+  // 兩段結果說明
+  const phase = $("phaseInfo");
+  if (res.burst) {
+    const np = (res.normal.total - 1) * 100, bp = (res.burst.total - 1) * 100;
+    phase.classList.remove("hidden");
+    phase.textContent =
+      `平時 ${np >= 0 ? "+" : ""}${np.toFixed(2)}% ／ 爆發期 ${bp >= 0 ? "+" : ""}${bp.toFixed(2)}%` +
+      `(爆發占比 ${(p * 100).toFixed(0)}%,爆發期傷害為平時的 ${res.R.toFixed(2)} 倍;下方為加權結果)`;
+  } else {
+    phase.classList.add("hidden");
+  }
 
   const totalPct = (total - 1) * 100;
   const t = $("resultTotal");
