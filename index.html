@@ -411,8 +411,10 @@ const Engine = (() => {
     const apNew = attributePower(mainNew, minorNew, b.build);
     f.attribute = apOld > 0 ? apNew / apOld : 1;
 
-    // 攻擊力(最終值加算)與攻擊%
-    f.attackFlat = b.attack > 0 ? (b.attack + (d.attackFlat || 0)) / b.attack : 1;
+    // 攻擊力:面板值已含攻擊%,故 flat 加成須先還原為「裸攻」再一併乘上%
+    //   裸攻 = 面板 ÷ (1+攻擊%);新面板 = (裸攻 + flat) × (1 + 攻擊% + Δ攻擊%)
+    const atkClear = b.attack / (1 + (b.attackPct || 0));
+    f.attackFlat = atkClear > 0 ? (atkClear + (d.attackFlat || 0)) / atkClear : 1;
     f.attackPct  = (1 + b.attackPct + (d.attackPct || 0)) / (1 + b.attackPct);
 
     // 傷害 + BOSS 傷(共用同一乘區)
@@ -1129,7 +1131,7 @@ const DELTA_FIELDS = [
   ["minorFlat",   "副屬 ±(吃%)"],
   ["minorPct",    "副屬 ±%"],
   ["minorUnique", "不吃%副屬 ±"],
-  ["attackFlat",  "攻擊力 ±"],
+  ["attackFlat",  "攻擊力 ±(裸攻,會吃%)"],
   ["attackPct",   "攻擊 ±%"],
   ["dmg",         "傷害 ±%"],
   ["boss",        "BOSS傷 ±%"],
@@ -1190,7 +1192,11 @@ function setupSimulation(basic, stat) {
 
     setV("mainFinal", r(Engine.sumStats(m, def.main) + (hpBuild ? (t.hp || 0) : mainAdd)));
     setV("minorFinal", r(Engine.sumStats(m, def.minor) + minorAdd));
-    setV("attack", r(atk + (t.atk || 0)));
+    // 攻擊力:面板已含攻擊%,buff 的裸攻須乘上總攻擊%後才能加到面板值
+    const manualAtkP = (parseFloat(($("manual_attackPct") || {}).value) || 0) / 100;
+    const totalAtkP  = manualAtkP + (t.atkP || 0) / 100;
+    const atkClear   = atk / (1 + manualAtkP);
+    setV("attack", r((atkClear + (t.atk || 0)) * (1 + totalAtkP)));
     setV("dmg", r((m["傷害"] || 0) + (t.dmg || 0)));
     setV("boss", r((m["BOSS怪物傷害"] || 0) + (t.boss || 0)));
     setV("crit", r((m["爆擊傷害"] || 0) + (t.crit || 0)));
@@ -1226,8 +1232,9 @@ function setupSimulation(basic, stat) {
       }
       localStorage.setItem(saveKey, JSON.stringify(data));
       updateDerivedClear();
-      // 爆發占比會改變規範戒指的等效值 → 重算 buff 與基準值
+      // 爆發占比會改變規範戒指的等效值;攻擊%會改變裸攻還原 → 皆需重算
       if (id === "burst") { BuffUI.refresh(); fillBaseline(); }
+      if (id === "attackPct") fillBaseline();
     });
   }
   $("base_mainFinal").addEventListener("input", updateDerivedClear);
@@ -1242,8 +1249,11 @@ function setupSimulation(basic, stat) {
     const gv = (id) => parseFloat(($(id) || {}).value) || 0;
     const mc = Engine.deriveClear(gv("base_mainFinal"), gv("manual_mainPct") / 100, gv("manual_mainUnique"));
     const nc = Engine.deriveClear(gv("base_minorFinal"), gv("manual_minorPct") / 100, gv("manual_minorUnique"));
+    const buffAtkP = (state.buffAtkP || 0) / 100;
+    const ac = gv("base_attack") / (1 + gv("manual_attackPct") / 100 + buffAtkP);
     $("derivedClear").textContent =
-      `反推裸值 → 主屬(吃%):${Math.round(mc).toLocaleString()}、副屬(吃%):${Math.round(nc).toLocaleString()}(最終值 = 裸值×(1+屬%) + 不吃%值)`;
+      `反推裸值 → 主屬:${Math.round(mc).toLocaleString()}、副屬:${Math.round(nc).toLocaleString()}、裸攻:${Math.round(ac).toLocaleString()}` +
+      `(面板 = 裸值×(1+%) + 不吃%值;裝備上的裸攻/裸屬加成會再乘上%)`;
   }
 
   // 變化量欄位
