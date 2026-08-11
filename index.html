@@ -101,6 +101,27 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
 .plan .pval.up{color:var(--good)}.plan .pval.down{color:var(--bad)}
 .plan .pdesc{flex-basis:100%;font-size:.72rem;color:var(--muted)}
 .plan .pcost{font-size:.75rem;color:var(--accent2);min-width:150px;text-align:right}
+/* buff */
+#buffTabs button{padding:5px 12px;font-size:.78rem}
+.buffgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+.buff{display:flex;gap:8px;align-items:center;background:var(--card2);border-radius:8px;padding:7px 10px;font-size:.8rem}
+.buff input[type=checkbox]{width:16px;height:16px;flex-shrink:0;accent-color:var(--accent)}
+.buff select{width:auto;min-width:62px;padding:3px 6px;font-size:.75rem}
+.buff .bn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.buff .bnp{color:var(--accent2);font-size:.68rem;flex-shrink:0}
+.buff.on{outline:1px solid var(--accent)}
+.buff .bjob{color:var(--muted);font-size:.68rem}
+.bgroup{font-size:.75rem;color:var(--accent);margin:12px 0 6px;padding-left:2px;border-left:3px solid var(--accent)}
+.bgroup:first-child{margin-top:0}
+/* recent */
+.recent{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.recent .rlabel{font-size:.75rem;color:var(--muted)}
+.rchip{display:inline-flex;align-items:center;gap:5px;background:var(--card2);border:1px solid var(--line);
+  border-radius:999px;padding:3px 6px 3px 11px;font-size:.78rem;color:var(--text)}
+.rchip .rname{cursor:pointer}
+.rchip .rname:hover{color:var(--accent)}
+.rchip .rdel{cursor:pointer;color:var(--muted);font-size:.9rem;line-height:1;padding:0 3px}
+.rchip .rdel:hover{color:var(--bad)}
 .plan .best{font-size:.68rem;color:var(--btn-text);background:var(--good);border-radius:6px;padding:1px 6px}
 .plan button{padding:4px 10px;font-size:.75rem}
 /* theme switcher */
@@ -153,6 +174,7 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
       </div>
       <button id="btnSearch">查詢</button>
     </div>
+    <div class="recent hidden" id="recentBar"></div>
     <div class="err hidden" id="searchErr"></div>
   </div>
 
@@ -191,6 +213,25 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
     <div style="margin-bottom:6px;font-size:.85rem;color:var(--muted)">請照面板/裝備自行加總;會依角色名記住填寫值</div>
     <div class="simgrid" id="manualGrid"></div>
     <div class="hint" id="derivedClear"></div>
+  </div>
+
+  <!-- Buff -->
+  <div class="card hidden" id="cardBuff">
+    <h2 id="hBuff"><span class="stepno"></span>Buff 加成 <span class="baseline-tag">面板為未吃 buff 狀態</span></h2>
+    <div style="margin-bottom:10px;font-size:.85rem;color:var(--muted)">
+      勾選/填入等級後,加成會疊到⑤的基準值上,讓增幅以「實戰狀態」為分母計算,結果更接近實際體感。
+      非常駐技能(有冷卻)以原表的等效值計算。
+    </div>
+    <div class="row" id="buffTabs" style="margin-bottom:8px"></div>
+    <div class="hint" id="buffLimit" style="margin:0 0 10px"></div>
+    <div id="buffBody"></div>
+    <div class="row" style="margin-top:12px;align-items:center">
+      <span style="font-size:.78rem;color:var(--muted)">狀態:</span>
+      <button id="btnBuffHot">熱機(套用 Buff)</button>
+      <button class="ghost" id="btnBuffCold">冷機(不吃 Buff)</button>
+      <span class="hint" style="margin:0">切換不會清除勾選,隨時可切回熱機</span>
+    </div>
+    <div class="hint" id="buffSummary"></div>
   </div>
 
   <!-- 模擬 -->
@@ -450,6 +491,7 @@ const Api = (() => {
  * UI
  * ========================================================= */
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const state = { statMap: null, build: "str", className: "", planKey: "", lastSim: null };
 
 /* ---------- 主題 ---------- */
@@ -483,8 +525,8 @@ function applyTheme(key) {
 
 /* ---------- 步驟編號與 API 設定卡 ---------- */
 {
-  const NUM = ["①", "②", "③", "④", "⑤", "⑥"];
-  const steps = ["hKey", "hSearch", "hChar", "hManual", "hSim", "hPlans"];
+  const NUM = ["①", "②", "③", "④", "⑤", "⑥", "⑦"];
+  const steps = ["hKey", "hSearch", "hChar", "hManual", "hBuff", "hSim", "hPlans"];
   let order = steps;
   if (Api.SITE_PROXY) {
     // 已內建站方 proxy:第一步免填,收合並移出編號
@@ -510,11 +552,46 @@ $("btnSaveKey").onclick = () => {
 };
 
 /* ---------- 查詢 ---------- */
-$("btnSearch").onclick = search;
+$("btnSearch").onclick = () => search();
 $("charName").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
 
-async function search() {
-  const name = $("charName").value.trim();
+/* 最近查詢過的角色 */
+const RECENT_MAX = 8;
+function loadRecent() {
+  try { return JSON.parse(localStorage.getItem("msec_recent") || "[]"); } catch (_) { return []; }
+}
+function saveRecent(list) {
+  localStorage.setItem("msec_recent", JSON.stringify(list.slice(0, RECENT_MAX)));
+  renderRecent();
+}
+function pushRecent(name) {
+  if (!name) return;
+  const list = loadRecent().filter(n => n !== name);
+  list.unshift(name);
+  saveRecent(list);
+}
+function renderRecent() {
+  const bar = $("recentBar"), list = loadRecent();
+  bar.innerHTML = "";
+  if (!list.length) { bar.classList.add("hidden"); return; }
+  bar.classList.remove("hidden");
+  bar.insertAdjacentHTML("beforeend", `<span class="rlabel">最近查詢:</span>`);
+  for (const name of list) {
+    const chip = document.createElement("span");
+    chip.className = "rchip";
+    chip.innerHTML = `<span class="rname">${esc(name)}</span><span class="rdel" title="移除">×</span>`;
+    chip.querySelector(".rname").onclick = () => {
+      $("charName").value = name;
+      search(name);
+    };
+    chip.querySelector(".rdel").onclick = () => saveRecent(loadRecent().filter(n => n !== name));
+    bar.appendChild(chip);
+  }
+}
+renderRecent();
+
+async function search(preset) {
+  const name = (preset || $("charName").value).trim();
   const errBox = $("searchErr");
   errBox.classList.add("hidden");
   if (!name) return showErr("請輸入角色名稱");
@@ -531,6 +608,7 @@ async function search() {
     renderCharacter(basic, stat);
     renderEquipment(equip);
     setupSimulation(basic, stat);
+    pushRecent(basic.character_name || name);
   } catch (e) {
     showErr(e.message);
   } finally {
@@ -602,8 +680,6 @@ function renderCharacter(basic, stat) {
 }
 
 /* ---------- 裝備 ---------- */
-const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
 // item_total_option 摘要要顯示的欄位
 const OPT_LABELS = [
   ["str", "STR"], ["dex", "DEX"], ["int", "INT"], ["luk", "LUK"],
@@ -694,6 +770,337 @@ function renderEquipList(items) {
   }
 }
 
+/* =========================================================
+ * Buff 加成(數值為遊戲公開資訊)
+ * ========================================================= */
+const BUFF_DATA = {
+  skill: [
+    {"n": "猛烈一擊", "step": {"crit": 2}, "max": 15},
+    {"n": "殺BOSS機器", "step": {"boss": 2}, "max": 15},
+    {"n": "以公會之名", "step": {"dmg": 2}, "max": 15},
+    {"n": "防禦不過是數字", "step": {"ign": 2}, "max": 15},
+    {"n": "冠軍庇護:Boss傷害", "step": {"boss": 2}, "max": 5},
+    {"n": "冠軍庇護:爆擊傷害", "step": {"crit": 0.5}, "max": 5},
+    {"n": "冠軍庇護:全屬/HP", "step": {"all": 10, "hp": 500}, "max": 5},
+    {"n": "冠軍庇護:攻擊力", "step": {"atk": 5}, "max": 5},
+    {"n": "冠軍庇護:無視防禦率", "step": {"ign": 2}, "max": 5},
+    {"n": "永續戒指", "lv": {"1": {"dmg": 9, "atkP": 4}, "2": {"dmg": 18, "atkP": 6}, "3": {"dmg": 27, "atkP": 8}, "4": {"dmg": 36, "atkP": 10}, "5": {"dmg": 45, "atkP": 12}, "6": {"dmg": 54, "atkP": 14}}},
+    {"n": "規範戒指", "np": 1, "dyn": "burst", "lv": {"1": {"atkP": 17}, "2": {"atkP": 34}, "3": {"atkP": 51}, "4": {"atkP": 68}, "5": {"atkP": 68}, "6": {"atkP": 85}}},
+    {"n": "神諭者的戒指", "lv": {"1": {"crit": 2}, "2": {"crit": 2}, "3": {"crit": 2}, "4": {"crit": 2}, "5": {"crit": 2}, "6": {"crit": 2}, "7": {"crit": 4}, "8": {"crit": 6}, "9": {"crit": 8}, "10": {"crit": 10}}},
+    {"n": "凝聚的戒指", "step": {"crit": 2}, "max": 5},
+    {"n": "夕陽的現身", "e": {"boss": 10}},
+    {"n": "午夜的現身", "e": {"ign": 10}},
+    {"n": "內面暴風", "e": {"atk": 20}},
+    {"n": "英雄回響", "e": {"atkP": 4}},
+    {"n": "高級武器鍛鍊", "e": {"crit": 5}},
+    {"n": "實用的會心之眼", "e": {"crit": 8}},
+    {"n": "一擊必殺(對軸)", "np": 1, "r": "傷害100%,對軸時等效 12%", "e": {"dmg": 12}},
+    {"n": "一擊必殺(不對軸)", "np": 1, "r": "傷害100%,不對軸時等效 7.5%", "e": {"dmg": 7.5}},
+    {"n": "五轉共通被動技", "e": {"all": 66, "atk": 50, "crit": 8}},
+    {"n": "AUT滿等加成", "e": {"dmg": 20}},
+    {"n": "公會的訣竅", "e": {"atk": 45, "all": 40}},
+    {"n": "聯盟的意志", "e": {"all": 5, "atk": 5}},
+  ],
+  pot: [
+    {"n": "閃閃發亮的紅色星星藥水", "e": {"boss": 20}},
+    {"n": "閃閃發亮的藍色星星藥水", "e": {"ign": 20}},
+    {"n": "賽伊蘭的靈藥", "e": {"atk": 50, "atkP": 10, "boss": 10, "crit": 8}},
+    {"n": "收藏家的靈藥", "e": {"all": 30, "atk": 100}},
+    {"n": "榮譽靈藥", "e": {"atk": 60}},
+    {"n": "馬瑟爾的禮物", "e": {"atk": 30}},
+    {"n": "275等椅子", "e": {"atk": 50}},
+    {"n": "聯盟之力階段", "e": {"atk": 30}},
+    {"n": "怪物公園藥水", "e": {"atk": 30}},
+    {"n": "10階段主屬藥水", "e": {"main": 30}},
+    {"n": "10階段副屬藥水", "e": {"sub": 30}},
+    {"n": "10階段副屬2藥水", "e": {"sub2": 30}},
+    {"n": "地圖天氣", "e": {"atk": 30}},
+    {"n": "VIP Buff", "e": {"all": 15, "atk": 15, "boss": 15, "ign": 15}},
+    {"n": "VIP超級力量券", "e": {"atk": 30}},
+    {"n": "VIP終極力量券", "e": {"atk": 50}},
+    {"n": "管理人的應援 - Boss傷害", "e": {"boss": 15}},
+  ],
+  pass: [
+    {"n": "靈魂契約", "job": "天使破壞者", "dyn": "soul", "r": "等效 = (10×加持持續倍率 ÷ 60) × 原始傷害%", "lv": {"2": {"dmg": 45}, "3": {"dmg": 60}}},
+    {"n": "惡魔之怒", "job": "惡魔殺手", "lv": {"2": {"boss": 15}, "3": {"boss": 20}}},
+    {"n": "蒼刃傳授", "job": "劍豪", "lv": {"2": {"crit": 5}, "3": {"crit": 7}}},
+    {"n": "紫扇傳授", "job": "陰陽師", "lv": {"2": {"dmg": 15}, "3": {"dmg": 20}}},
+    {"n": "氣魄", "job": "墨玄", "lv": {"2": {"boss": 16}, "3": {"boss": 22}}},
+    {"n": "集中狂攻", "job": "卡蒂娜", "lv": {"2": {"dmg": 12}, "3": {"dmg": 18}}},
+    {"n": "判斷", "job": "凱內西斯", "lv": {"2": {"crit": 4}, "3": {"crit": 6}}},
+    {"n": "實戰知識", "job": "大魔導士/主教", "lv": {"6": {"dmg": 9, "ign": 9}, "7": {"dmg": 12, "ign": 12}, "8": {"dmg": 12, "ign": 12}, "9": {"dmg": 15, "ign": 15}}},
+    {"n": "小偷的狡詐", "job": "夜使者/影武者/暗影神偷", "r": "依占比50%換算", "lv": {"6": {"dmg": 9}, "7": {"dmg": 10.5}, "8": {"dmg": 12}, "9": {"dmg": 13.5}}},
+    {"n": "狂暴鬥氣", "job": "惡魔復仇者", "lv": {"2": {"dmg": 10}, "3": {"dmg": 15}}},
+    {"n": "無我", "job": "亞克", "lv": {"2": {"dmg": 11}, "3": {"dmg": 16}}},
+    {"n": "合成邏輯", "job": "傑諾", "lv": {"2": {"allP": 10}, "3": {"allP": 15}}},
+    {"n": "戰鬥的流動", "job": "伊利恩", "lv": {"2": {"dmg": 12}, "3": {"dmg": 16}}},
+    {"n": "事前準備", "job": "凱殷", "r": "依占比50%換算", "lv": {"2": {"dmg": 8.5}, "3": {"dmg": 12.5}}},
+    {"n": "貴族", "job": "阿戴爾", "lv": {"2": {"boss": 4, "dmg": 8}, "3": {"boss": 6, "dmg": 12}}},
+    {"n": "精靈集中", "job": "琳恩", "lv": {"2": {"boss": 7}, "3": {"boss": 11}}},
+  ],
+};
+
+// 分組顯示(null = 該分類其餘項目)
+const BUFF_GROUPS = {
+  skill: [
+    ["爆發技能", ["永續戒指", "規範戒指", "一擊必殺(對軸)", "一擊必殺(不對軸)"]],
+    ["公會技能", ["猛烈一擊", "殺BOSS機器", "以公會之名", "防禦不過是數字"]],
+    ["冠軍庇護", ["冠軍庇護:Boss傷害", "冠軍庇護:爆擊傷害", "冠軍庇護:全屬/HP",
+                  "冠軍庇護:攻擊力", "冠軍庇護:無視防禦率"]],
+    ["戒指・現身", ["夕陽的現身", "午夜的現身", "神諭者的戒指", "凝聚的戒指", "內面暴風"]],
+    ["其他", null],
+  ],
+  pot: [
+    ["星星藥水(擇一)", ["閃閃發亮的紅色星星藥水", "閃閃發亮的藍色星星藥水"]],
+    ["椅子・靈藥", ["275等椅子", "榮譽靈藥", "收藏家的靈藥"]],
+    ["其他", null],
+  ],
+};
+// 互斥組:同組內只能擇一
+const BUFF_EXCLUSIVE = [
+  ["夕陽的現身", "午夜的現身"],
+  ["一擊必殺(對軸)", "一擊必殺(不對軸)"],
+  ["閃閃發亮的紅色星星藥水", "閃閃發亮的藍色星星藥水"],
+  ["275等椅子", "榮譽靈藥"],
+];
+// 各分類同時啟用上限
+const BUFF_LIMIT = { pass: 12 };
+
+const BuffUI = (() => {
+  const CATS = [["skill", "技能"], ["pot", "藥水"], ["pass", "傳授技能"]];
+  const LABELS = {
+    atk: "攻擊力", atkP: "攻擊%", dmg: "傷害%", boss: "BOSS傷%", crit: "爆傷%",
+    ign: "無視防禦%", all: "全屬", allP: "全屬%", main: "主屬", sub: "副屬",
+    sub2: "副屬2", hp: "HP",
+  };
+  const PCT = new Set(["atkP", "dmg", "boss", "crit", "ign", "allP"]);
+  let state = {}, saveKey = "", ctx = {}, mode = "hot";  // hot=套用 / cold=不套用(保留勾選)
+
+  const bid = (cat, b) => `${cat}:${b.n}`;
+  // step 型(等差)展開成等級表
+  function levelTable(b) {
+    if (b.lv) return b.lv;
+    if (!b.step) return null;
+    const t = {};
+    for (let l = 1; l <= b.max; l++) {
+      t[l] = {};
+      for (const [k, v] of Object.entries(b.step)) t[l][k] = Math.round(v * l * 100) / 100;
+    }
+    return t;
+  }
+  const levelKeys = (b) => {
+    const t = levelTable(b);
+    return t ? Object.keys(t).map(Number).sort((a, c) => a - c) : null;
+  };
+
+  // 動態占比:非常駐技能依實際觸發率折算
+  //  soul  = 靈魂契約:(10 × 加持持續倍率) ÷ 60秒冷卻
+  //  burst = 規範戒指:使用者填的「估計爆發占比」
+  function dynMul(b) {
+    if (b.dyn === "soul") {
+      const dur = ctx.buffDuration || 0;          // API「Buff持續時間」為 +N%
+      return (10 * (1 + dur / 100)) / 60;
+    }
+    if (b.dyn === "burst") {
+      const el = $("manual_burst");
+      const v = el ? parseFloat(el.value) : NaN;
+      return (Number.isFinite(v) ? Math.min(Math.max(v, 0), 100) : 0) / 100;
+    }
+    return 1;
+  }
+
+  function effectAt(b, v) {
+    const t = levelTable(b);
+    const raw = t ? (t[String(v)] || {}) : (b.e || {});
+    const mul = dynMul(b);
+    if (mul === 1) return raw;
+    const out = {};
+    for (const [k, n] of Object.entries(raw)) out[k] = Math.round(n * mul * 100) / 100;
+    return out;
+  }
+
+  // 加總啟用中的 buff(冷機狀態視為完全沒吃 buff,但勾選內容保留)
+  function totals() {
+    const out = {};
+    if (mode === "cold") return out;
+    for (const [cat] of CATS)
+      for (const b of BUFF_DATA[cat] || []) {
+        const v = state[bid(cat, b)];
+        if (!v) continue;
+        for (const [k, n] of Object.entries(effectAt(b, v))) out[k] = (out[k] || 0) + n;
+      }
+    return out;
+  }
+
+  function render() {
+    const tabs = $("buffTabs");
+    tabs.innerHTML = "";
+    CATS.forEach(([cat, label], i) => {
+      const btn = document.createElement("button");
+      btn.className = i === 0 ? "" : "ghost";
+      btn.textContent = `${label} (${(BUFF_DATA[cat] || []).length})`;
+      btn.onclick = () => {
+        [...tabs.children].forEach(x => x.className = "ghost");
+        btn.className = "";
+        renderList(cat);
+      };
+      tabs.appendChild(btn);
+      if (i === 0) renderList(cat);
+    });
+  }
+
+  // 已啟用數量(用於上限判斷)
+  function activeCount(cat) {
+    return (BUFF_DATA[cat] || []).filter(b => state[bid(cat, b)]).length;
+  }
+
+  function renderList(cat) {
+    const body = $("buffBody");
+    body.innerHTML = "";
+    const all = BUFF_DATA[cat] || [];
+    const groups = BUFF_GROUPS[cat];
+
+    if (!groups) {
+      buildGroup(cat, null, all);
+    } else {
+      const used = new Set();
+      for (const [, names] of groups) (names || []).forEach(n => used.add(n));
+      for (const [label, names] of groups) {
+        const items = names
+          ? names.map(n => all.find(b => b.n === n)).filter(Boolean)
+          : all.filter(b => !used.has(b.n));
+        if (items.length) buildGroup(cat, label, items);
+      }
+    }
+    updateLimitHint(cat);
+  }
+
+  function updateLimitHint(cat) {
+    const cap = BUFF_LIMIT[cat];
+    const el = $("buffLimit");
+    if (!cap) { el.textContent = ""; return; }
+    const n = activeCount(cat);
+    el.textContent = `已選 ${n} / ${cap} 種(達上限後需先取消其他項目)`;
+    el.style.color = n >= cap ? "var(--accent2)" : "var(--muted)";
+  }
+
+  function buildGroup(cat, label, items) {
+    const body = $("buffBody");
+    if (label) body.insertAdjacentHTML("beforeend", `<div class="bgroup">${esc(label)}</div>`);
+    body.insertAdjacentHTML("beforeend", `<div class="buffgrid"></div>`);
+    const grid = body.lastChild;
+    for (const b of items) {
+      const key = bid(cat, b);
+      const lv = levelKeys(b);
+      const on = !!state[key];
+      const row = document.createElement("div");
+      row.className = "buff" + (on ? " on" : "");
+      const top = effectAt(b, lv ? lv[lv.length - 1] : true);
+      const tip = Object.entries(top)
+        .map(([k, v]) => `${LABELS[k] || k}+${v}${PCT.has(k) ? "%" : ""}`).join(" / ");
+      row.title = (b.r ? b.r + " — " : "") + (lv ? `滿級:${tip}` : tip);
+      let html = `<input type="checkbox" ${on ? "checked" : ""}>
+        <span class="bn">${esc(b.n)}${b.job ? ` <span class="bjob">${esc(b.job)}</span>` : ""}</span>`;
+      if (b.np) html += `<span class="bnp" title="非常駐技能,以等效值計算">等效</span>`;
+      if (lv) html += `<select>${lv.map(l =>
+        `<option value="${l}" ${Number(state[key]) === l ? "selected" : ""}>Lv${l}</option>`).join("")}</select>`;
+      row.innerHTML = html;
+      const cb = row.querySelector("input"), sel = row.querySelector("select");
+      if (sel && !state[key]) sel.value = String(lv[lv.length - 1]);
+      const sync = () => {
+        // 數量上限
+        const cap = BUFF_LIMIT[cat];
+        if (cb.checked && cap && !state[key] && activeCount(cat) >= cap) {
+          cb.checked = false;
+          $("buffLimit").textContent = `已達上限 ${cap} 種,請先取消其他項目`;
+          $("buffLimit").style.color = "var(--bad)";
+          return;
+        }
+        state[key] = cb.checked ? (sel ? Number(sel.value) : true) : 0;
+        // 互斥組:啟用時關閉同組其他項
+        if (cb.checked) {
+          const grp = BUFF_EXCLUSIVE.find(g => g.includes(b.n));
+          if (grp) {
+            for (const other of grp) {
+              if (other === b.n) continue;
+              const ob = (BUFF_DATA[cat] || []).find(x => x.n === other);
+              if (ob) state[bid(cat, ob)] = 0;
+            }
+            persist();
+            renderList(cat);
+            return;
+          }
+        }
+        row.classList.toggle("on", cb.checked);
+        persist();
+        updateLimitHint(cat);
+      };
+      cb.onchange = sync;
+      if (sel) sel.onchange = () => { cb.checked = true; sync(); };
+      grid.appendChild(row);
+    }
+  }
+
+  function persist() {
+    if (saveKey) localStorage.setItem(saveKey, JSON.stringify({ sel: state, mode }));
+    summarize();
+    if (typeof window.onBuffChange === "function") window.onBuffChange();
+  }
+
+  function summarize() {
+    $("btnBuffHot").className = mode === "hot" ? "" : "ghost";
+    $("btnBuffCold").className = mode === "cold" ? "" : "ghost";
+    const picked = Object.values(state).filter(Boolean).length;
+    if (mode === "cold") {
+      $("buffSummary").textContent =
+        `冷機中:已保留 ${picked} 項勾選但不套用,增幅以未吃 buff 的面板為分母。`;
+      return;
+    }
+    const t = totals();
+    const parts = Object.entries(t).filter(([, v]) => v)
+      .map(([k, v]) => `${LABELS[k] || k} +${Math.round(v * 100) / 100}${PCT.has(k) ? "%" : ""}`);
+    $("buffSummary").textContent = parts.length
+      ? `熱機中(${picked} 項)合計:` + parts.join("、")
+      : "尚未勾選任何 Buff(增幅將以未吃 buff 的面板為分母)。";
+  }
+
+  function setMode(m) {
+    mode = m;
+    persist();
+    summarize();
+  }
+
+  function init(charName, statMap) {
+    saveKey = "msec_buff_" + (charName || "");
+    ctx.buffDuration = (statMap && statMap["Buff持續時間"]) || 0;
+    state = {}; mode = "hot";
+    try {
+      const raw = JSON.parse(localStorage.getItem(saveKey) || "{}");
+      // 相容舊版(直接存勾選表)與新版({sel, mode})
+      if (raw && typeof raw === "object" && raw.sel) {
+        state = raw.sel || {};
+        mode = raw.mode === "cold" ? "cold" : "hot";
+      } else {
+        state = raw || {};
+      }
+    } catch (_) { state = {}; }
+    render();
+    summarize();
+  }
+
+  // 「估計爆發占比」變動時重新整理(規範戒指為動態值)
+  function refresh() {
+    const active = [...$("buffTabs").children].findIndex(b => b.className !== "ghost");
+    renderList(CATS[Math.max(active, 0)][0]);
+    summarize();
+  }
+
+  $("btnBuffHot").onclick = () => setMode("hot");
+  $("btnBuffCold").onclick = () => setMode("cold");
+
+  return { init, refresh, totals, LABELS };
+})();
+
 /* ---------- 模擬 ---------- */
 const BASE_FIELDS = [
   ["build",      "職業體系",             "select"],
@@ -713,6 +1120,7 @@ const MANUAL_FIELDS = [
   ["mainUnique",  "不吃%主屬"],
   ["minorPct",    "副屬%"],
   ["minorUnique", "不吃%副屬"],
+  ["burst",       "估計爆發占比%(10~90)"],
 ];
 const DELTA_FIELDS = [
   ["mainFlat",    "主屬 ±(吃%)"],
@@ -735,6 +1143,7 @@ const FACTOR_LABELS = {
 
 function setupSimulation(basic, stat) {
   $("cardManual").classList.remove("hidden");
+  $("cardBuff").classList.remove("hidden");
   $("cardSim").classList.remove("hidden");
   $("cardPlans").classList.remove("hidden");
   $("resultBox").classList.add("hidden");
@@ -762,27 +1171,41 @@ function setupSimulation(basic, stat) {
     }
   }
   $("base_build").onchange = fillBaseline;
-  fillBaseline();
 
   function fillBaseline() {
     const bk = $("base_build").value;
     const def = B[bk];
     const isMage = bk === "int";
+    const t = BuffUI.totals();               // buff 加成
+    const r = (x) => Math.round(x * 100) / 100;
     const atk = isMage
       ? (m["魔法攻擊力"] || m["攻擊力"] || 0)
       : (m["攻擊力"] || m["魔法攻擊力"] || 0);
-    setV("mainFinal", Engine.sumStats(m, def.main));
-    setV("minorFinal", Engine.sumStats(m, def.minor));
-    setV("attack", atk);
-    setV("dmg", m["傷害"] || 0);
-    setV("boss", m["BOSS怪物傷害"] || 0);
-    setV("crit", m["爆擊傷害"] || 0);
+
+    // 屬性:全屬(all)加到主屬與副屬;主屬/副屬藥水各自加;副屬2 給雙副屬職業
+    const allFlat = t.all || 0;
+    const mainAdd  = allFlat + (t.main || 0);
+    const minorAdd = allFlat + (t.sub || 0) + (def.minor.length > 1 ? (t.sub2 || 0) : 0);
+    const hpBuild = bk === "hp";
+
+    setV("mainFinal", r(Engine.sumStats(m, def.main) + (hpBuild ? (t.hp || 0) : mainAdd)));
+    setV("minorFinal", r(Engine.sumStats(m, def.minor) + minorAdd));
+    setV("attack", r(atk + (t.atk || 0)));
+    setV("dmg", r((m["傷害"] || 0) + (t.dmg || 0)));
+    setV("boss", r((m["BOSS怪物傷害"] || 0) + (t.boss || 0)));
+    setV("crit", r((m["爆擊傷害"] || 0) + (t.crit || 0)));
     setV("fd", m["最終傷害"] || 0);
-    setV("ignore", m["無視防禦率"] || 0);
+    // 無視防禦為乘算疊加
+    setV("ignore", r(Engine.combineIgnore((m["無視防禦率"] || 0) / 100, (t.ign || 0) / 100) * 100));
     setV("bossPdr", 300);
+    // 攻擊% 與 全屬% 疊到手動填入區的基準百分比上
+    state.buffAtkP = t.atkP || 0;
+    state.buffAllP = t.allP || 0;
     updateDerivedClear();
     function setV(id, v) { $("base_" + id).value = v; }
   }
+  // buff 變動時即時重算基準值
+  window.onBuffChange = fillBaseline;
 
   // 手動填入欄位(依角色名記憶)
   const mg = $("manualGrid");
@@ -803,10 +1226,16 @@ function setupSimulation(basic, stat) {
       }
       localStorage.setItem(saveKey, JSON.stringify(data));
       updateDerivedClear();
+      // 爆發占比會改變規範戒指的等效值 → 重算 buff 與基準值
+      if (id === "burst") { BuffUI.refresh(); fillBaseline(); }
     });
   }
   $("base_mainFinal").addEventListener("input", updateDerivedClear);
   $("base_minorFinal").addEventListener("input", updateDerivedClear);
+
+  // 手動欄位就緒後才載入 Buff(規範戒指需讀取爆發占比),最後才帶入基準值
+  BuffUI.init(basic.character_name, m);
+  fillBaseline();
   updateDerivedClear();
 
   function updateDerivedClear() {
@@ -856,13 +1285,13 @@ function runSimulation() {
   const baseline = {
     build:       $("base_build").value,
     mainFinal:   gv("base_mainFinal"),
-    mainPct:     pct(gv("manual_mainPct")),
+    mainPct:     pct(gv("manual_mainPct") + (state.buffAllP || 0)),
     mainUnique:  gv("manual_mainUnique"),
     minorFinal:  gv("base_minorFinal"),
-    minorPct:    pct(gv("manual_minorPct")),
+    minorPct:    pct(gv("manual_minorPct") + (state.buffAllP || 0)),
     minorUnique: gv("manual_minorUnique"),
     attack:      gv("base_attack"),
-    attackPct:   pct(gv("manual_attackPct")),
+    attackPct:   pct(gv("manual_attackPct") + (state.buffAtkP || 0)),
     dmg:         pct(gv("base_dmg")),
     boss:        pct(gv("base_boss")),
     crit:        pct(gv("base_crit")),
