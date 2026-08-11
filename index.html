@@ -217,8 +217,11 @@ input.unfilled{border-color:var(--accent2)}
     <h2 id="hManual"><span class="stepno"></span>手動填入 <span class="baseline-tag">API 無法取得的數值</span></h2>
     <div style="margin-bottom:6px;font-size:.85rem;color:var(--muted)">請照面板/裝備自行加總;會依角色名記住填寫值</div>
     <div class="simgrid" id="manualGrid"></div>
-    <div class="warn hidden" id="manualWarn"></div>
     <div class="hint" id="derivedClear"></div>
+
+    <div style="margin:16px 0 6px;font-size:.85rem;color:var(--accent2)">爆發設定(供⑤的爆發技能換算使用)</div>
+    <div class="simgrid" id="burstGrid"></div>
+    <div class="warn hidden" id="manualWarn"></div>
   </div>
 
   <!-- Buff -->
@@ -826,7 +829,7 @@ const BUFF_DATA = {
     {"n": "冠軍庇護:攻擊力", "step": {"atk": 5}, "max": 5},
     {"n": "冠軍庇護:無視防禦率", "step": {"ign": 2}, "max": 5},
     {"n": "永續戒指", "lv": {"1": {"dmg": 9, "atkP": 4}, "2": {"dmg": 18, "atkP": 6}, "3": {"dmg": 27, "atkP": 8}, "4": {"dmg": 36, "atkP": 10}, "5": {"dmg": 45, "atkP": 12}, "6": {"dmg": 54, "atkP": 14}}},
-    {"n": "規範戒指", "burst": 1, "durLv": {"1": 9, "2": 11, "3": 13, "4": 15, "5": 20, "6": 20},
+    {"n": "規範戒指", "burst": 1, "durLv": {"1": 15, "2": 15, "3": 15, "4": 15, "5": 20, "6": 20},
      "lv": {"1": {"atkP": 17}, "2": {"atkP": 34}, "3": {"atkP": 51}, "4": {"atkP": 68}, "5": {"atkP": 68}, "6": {"atkP": 85}}},
     {"n": "神諭者的戒指", "lv": {"1": {"crit": 2}, "2": {"crit": 2}, "3": {"crit": 2}, "4": {"crit": 2}, "5": {"crit": 2}, "6": {"crit": 2}, "7": {"crit": 4}, "8": {"crit": 6}, "9": {"crit": 8}, "10": {"crit": 10}}},
     {"n": "凝聚的戒指", "step": {"crit": 2}, "max": 5},
@@ -940,14 +943,19 @@ const BuffUI = (() => {
     return t ? (t[String(v)] || {}) : (b.e || {});
   }
 
-  // 爆發窗假定長度(秒)
-  const BURST_WINDOW = 20;
+  // 爆發窗長度(秒):可於④手動填入,未填則預設 20
+  const BURST_WINDOW_DEFAULT = 20;
+  function burstWindow() {
+    const el = $("manual_burstSec");
+    const v = el ? parseFloat(el.value) : NaN;
+    return Number.isFinite(v) && v > 0 ? v : BURST_WINDOW_DEFAULT;
+  }
 
   // 技能持續秒數(靈魂契約依 API「Buff持續時間」動態計算)
   function durationOf(b, v) {
     if (b.durDyn === "soul") return 10 * (1 + (ctx.buffDuration || 0) / 100);
-    if (b.durLv) return b.durLv[String(v)] || BURST_WINDOW;
-    return b.dur || BURST_WINDOW;
+    if (b.durLv) return b.durLv[String(v)] || burstWindow();
+    return b.dur || burstWindow();
   }
 
   function burstRatio() {
@@ -967,7 +975,7 @@ const BuffUI = (() => {
   function totals(onlyBurst) {
     const out = {};
     if (mode === "cold") return out;
-    const p = burstRatio();
+    const p = burstRatio(), W = burstWindow();
     for (const [cat] of CATS)
       for (const b of BUFF_DATA[cat] || []) {
         const v = state[bid(cat, b)];
@@ -977,8 +985,8 @@ const BuffUI = (() => {
         if (b.burst) {
           const D = durationOf(b, v);
           k = onlyBurst
-            ? Math.min(D, BURST_WINDOW) / BURST_WINDOW
-            : (p > 0 && p < 1 ? p * Math.max(D - BURST_WINDOW, 0) / (BURST_WINDOW * (1 - p)) : 0);
+            ? Math.min(D, W) / W
+            : (p > 0 && p < 1 ? p * Math.max(D - W, 0) / (W * (1 - p)) : 0);
         } else {
           k = onlyBurst ? 0 : 1;
         }
@@ -993,15 +1001,15 @@ const BuffUI = (() => {
 
   // 爆發技能明細(供介面顯示換算過程)
   function burstDetail() {
-    const p = burstRatio(), rows = [];
+    const p = burstRatio(), W = burstWindow(), rows = [];
     for (const [cat] of CATS)
       for (const b of BUFF_DATA[cat] || []) {
         if (!b.burst) continue;
         const v = state[bid(cat, b)];
         if (!v) continue;
         const D = durationOf(b, v);
-        const cover = Math.min(D, BURST_WINDOW) / BURST_WINDOW;
-        const spill = (p > 0 && p < 1) ? p * Math.max(D - BURST_WINDOW, 0) / (BURST_WINDOW * (1 - p)) : 0;
+        const cover = Math.min(D, W) / W;
+        const spill = (p > 0 && p < 1) ? p * Math.max(D - W, 0) / (W * (1 - p)) : 0;
         const eff = effectAt(b, v);
         rows.push({ name: b.n, dur: Math.round(D * 10) / 10, cover, spill, eff });
       }
@@ -1147,18 +1155,18 @@ const BuffUI = (() => {
     const rows = burstDetail(), box = $("burstDetail");
     if (!rows.length || mode === "cold") { box.classList.add("hidden"); return; }
     box.classList.remove("hidden");
-    const p = burstRatio();
+    const p = burstRatio(), W = burstWindow();
     const fmtEff = (e, k) => Object.entries(e)
       .map(([s, n]) => `${LABELS[s] || s} ${Math.round(n * k * 100) / 100}${PCT.has(s) ? "%" : ""}`).join("、");
     box.innerHTML =
-      `<b>爆發窗假定 ${BURST_WINDOW} 秒</b>　覆蓋率 = min(持續, ${BURST_WINDOW}) ÷ ${BURST_WINDOW}` +
-      `　溢出平砍 = p × max(持續−${BURST_WINDOW}, 0) ÷ (${BURST_WINDOW} × (1−p))　` +
+      `<b>爆發窗 ${W} 秒</b>　覆蓋率 = min(持續, ${W}) ÷ ${W}` +
+      `　溢出平砍 = p × max(持續−${W}, 0) ÷ (${W} × (1−p))　` +
       `<span style="color:var(--muted)">p = 爆發占比 = ${(p * 100).toFixed(0)}%</span><br>` +
       rows.map(r =>
         `・<b>${esc(r.name)}</b> 持續 ${r.dur}s → 爆發窗覆蓋 ${(r.cover * 100).toFixed(0)}%:${esc(fmtEff(r.eff, r.cover))}` +
         (r.spill > 0
           ? `;溢出平砍 ${(r.spill * 100).toFixed(1)}%:${esc(fmtEff(r.eff, r.spill))}`
-          : (r.dur > BURST_WINDOW ? ";溢出部分需填爆發占比才會計入" : ""))
+          : (r.dur > W ? ";溢出部分需填爆發占比才會計入" : ""))
       ).join("<br>");
   }
 
@@ -1216,8 +1224,14 @@ const MANUAL_FIELDS = [
   ["mainUnique",  "不吃%主屬"],
   ["minorPct",    "副屬%"],
   ["minorUnique", "不吃%副屬"],
-  ["burst",       "估計爆發占比%(10~90)"],
 ];
+// 爆發相關(獨立一列)
+const BURST_FIELDS = [
+  ["burst",    "估計爆發占比%(10~90)"],
+  ["burstSec", "爆發窗秒數(預設20)"],
+];
+// 有預設值、未填不需警告的欄位
+const MANUAL_OPTIONAL = new Set(["burstSec"]);
 // 未填時的影響說明
 const MANUAL_IMPACT = {
   attackPct:   "「攻擊力 ±」的裸攻加成不會乘上攻擊%,增幅會被低估",
@@ -1325,34 +1339,37 @@ function setupSimulation(basic, stat) {
     state.buffAtkP = t.atkP || 0;
     state.buffAllP = t.allP || 0;
     state.hpBuild  = hpBuild;
+    state.buffFlat = { main: mainFlatBuff, minor: minorFlatBuff, atk: t.atk || 0 };
     updateDerivedClear();
     function setV(id, v) { $("base_" + id).value = v; }
   }
   // buff 變動時即時重算基準值
   window.onBuffChange = fillBaseline;
 
-  // 手動填入欄位(依角色名記憶)
-  const mg = $("manualGrid");
-  mg.innerHTML = "";
+  // 手動填入欄位(依角色名記憶);爆發相關另置一列
   const saveKey = "msec_manual_" + (basic.character_name || "");
   const saved = JSON.parse(localStorage.getItem(saveKey) || "{}");
-  for (const [id, label] of MANUAL_FIELDS) {
-    mg.insertAdjacentHTML("beforeend",
-      `<div class="field"><label>${label}</label><input type="number" step="any" id="manual_${id}" placeholder="0"></div>`);
-    if (saved[id] != null) $("manual_" + id).value = saved[id];
+  const ALL_MANUAL = [...MANUAL_FIELDS, ...BURST_FIELDS];
+  for (const [grid, fields] of [[$("manualGrid"), MANUAL_FIELDS], [$("burstGrid"), BURST_FIELDS]]) {
+    grid.innerHTML = "";
+    for (const [id, label] of fields) {
+      grid.insertAdjacentHTML("beforeend",
+        `<div class="field"><label>${label}</label><input type="number" step="any" id="manual_${id}" placeholder="${id === "burstSec" ? "20" : "0"}"></div>`);
+      if (saved[id] != null) $("manual_" + id).value = saved[id];
+    }
   }
-  for (const [id] of MANUAL_FIELDS) {
+  for (const [id] of ALL_MANUAL) {
     $("manual_" + id).addEventListener("input", () => {
       const data = {};
-      for (const [i2] of MANUAL_FIELDS) {
+      for (const [i2] of ALL_MANUAL) {
         const v = $("manual_" + i2).value;
         if (v !== "") data[i2] = v;
       }
       localStorage.setItem(saveKey, JSON.stringify(data));
       updateDerivedClear();
       updateManualWarn();
-      // 爆發占比會改變溢出率;各項%與不吃%值會改變裸值還原 → 皆需重算基準
-      if (id === "burst") BuffUI.refresh();
+      // 爆發占比/爆發窗會改變覆蓋率與溢出率;各項%會改變裸值還原 → 皆需重算
+      if (id === "burst" || id === "burstSec") BuffUI.refresh();
       fillBaseline();
     });
   }
@@ -1368,11 +1385,11 @@ function setupSimulation(basic, stat) {
   // 未填欄位提示
   function updateManualWarn() {
     const empty = [];
-    for (const [id, label] of MANUAL_FIELDS) {
+    for (const [id, label] of [...MANUAL_FIELDS, ...BURST_FIELDS]) {
       const el = $("manual_" + id);
       const blank = !el || el.value.trim() === "";
-      if (el) el.classList.toggle("unfilled", blank);
-      if (blank) empty.push([id, label]);
+      if (el) el.classList.toggle("unfilled", blank && !MANUAL_OPTIONAL.has(id));
+      if (blank && !MANUAL_OPTIONAL.has(id)) empty.push([id, label]);
     }
     const box = $("manualWarn");
     if (!empty.length) { box.classList.add("hidden"); return; }
@@ -1389,11 +1406,17 @@ function setupSimulation(basic, stat) {
     const allP = (state.hpBuild ? 0 : (state.buffAllP || 0)) / 100;
     const mc = Engine.deriveClear(gv("base_mainFinal"), gv("manual_mainPct") / 100 + allP, gv("manual_mainUnique"));
     const nc = Engine.deriveClear(gv("base_minorFinal"), gv("manual_minorPct") / 100 + (state.buffAllP || 0) / 100, gv("manual_minorUnique"));
-    const buffAtkP = (state.buffAtkP || 0) / 100;
-    const ac = gv("base_attack") / (1 + gv("manual_attackPct") / 100 + buffAtkP);
-    $("derivedClear").textContent =
-      `反推裸值 → 主屬:${Math.round(mc).toLocaleString()}、副屬:${Math.round(nc).toLocaleString()}、裸攻:${Math.round(ac).toLocaleString()}` +
-      `(面板 = 裸值×(1+%) + 不吃%值;裝備上的裸攻/裸屬加成會再乘上%)`;
+    const ac = gv("base_attack") / (1 + gv("manual_attackPct") / 100 + (state.buffAtkP || 0) / 100);
+
+    // 拆出「面板本身的裸值」與「buff 提供的裸值」,避免混淆
+    const bf = state.buffFlat || { main: 0, minor: 0, atk: 0 };
+    const n = (x) => Math.round(x).toLocaleString();
+    const part = (label, total, buff) => buff
+      ? `${label}:<b>${n(total - buff)}</b> + buff ${n(buff)} = ${n(total)}`
+      : `${label}:<b>${n(total)}</b>`;
+    $("derivedClear").innerHTML =
+      `反推裸值(面板 = 裸值×(1+%) + 不吃%值)　` +
+      [part("主屬", mc, bf.main), part("副屬", nc, bf.minor), part("裸攻", ac, bf.atk)].join("、");
   }
 
   // 變化量欄位
