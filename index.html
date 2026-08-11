@@ -344,7 +344,9 @@ const Engine = (() => {
                "阿戴爾", "神之子", "劍豪"]],
   ];
 
-  const CRIT_BASE = 1.35;   // 爆傷基底
+  // 爆傷基底 = 基礎傷害 1.0 + 基礎爆傷 0.35。
+  // 已確認 API 的「爆擊傷害」不含基礎 35%,故此處相加不會重複計算。
+  const CRIT_BASE = 1.35;
   const DA_HP_DIVISOR = 3.5, DA_HP_WEIGHT = 0.8; // 惡魔復仇者 HP→屬性 近似換算
 
   function detectBuild(className) {
@@ -1285,14 +1287,28 @@ function setupSimulation(basic, stat) {
       ? (m["魔法攻擊力"] || m["攻擊力"] || 0)
       : (m["攻擊力"] || m["魔法攻擊力"] || 0);
 
-    // 屬性:全屬(all)加到主屬與副屬;主屬/副屬藥水各自加;副屬2 給雙副屬職業
-    const allFlat = t.all || 0;
-    const mainAdd  = allFlat + (t.main || 0);
-    const minorAdd = allFlat + (t.sub || 0) + (def.minor.length > 1 ? (t.sub2 || 0) : 0);
-    const hpBuild = bk === "hp";
+    // 屬性:全屬(all)對「每一項」主/副屬各加一次(傑諾三主屬 = ×3、雙副屬 = ×2)
+    //  buff 的裸屬與裝備一樣會吃屬性%,故須先還原裸值、加上 buff 後再一併乘%
+    const hpBuild  = bk === "hp";
+    const allFlat  = t.all || 0;
+    const gvm = (id) => parseFloat(($("manual_" + id) || {}).value) || 0;
+    const mainPctM  = gvm("mainPct") / 100,  mainUq  = gvm("mainUnique");
+    const minorPctM = gvm("minorPct") / 100, minorUq = gvm("minorUnique");
+    const allP = (t.allP || 0) / 100;                       // 全屬%(合成邏輯)
+    const mainAllP  = hpBuild ? 0 : allP;                   // 全屬%不作用於 HP
 
-    setV("mainFinal", r(Engine.sumStats(m, def.main) + (hpBuild ? (t.hp || 0) : mainAdd)));
-    setV("minorFinal", r(Engine.sumStats(m, def.minor) + minorAdd));
+    const mainFlatBuff  = hpBuild
+      ? (t.hp || 0)
+      : allFlat * def.main.length + (t.main || 0);
+    const minorFlatBuff = allFlat * def.minor.length + (t.sub || 0)
+      + (def.minor.length > 1 ? (t.sub2 || 0) : 0);
+
+    const mainClear  = Engine.deriveClear(Engine.sumStats(m, def.main),  mainPctM,  mainUq);
+    const minorClear = Engine.deriveClear(Engine.sumStats(m, def.minor), minorPctM, minorUq);
+    setV("mainFinal",  r((mainClear  + mainFlatBuff)  * (1 + mainPctM  + mainAllP) + mainUq));
+    setV("minorFinal", r(def.minor.length
+      ? (minorClear + minorFlatBuff) * (1 + minorPctM + allP) + minorUq
+      : 0));
     // 攻擊力:面板已含攻擊%,buff 的裸攻須乘上總攻擊%後才能加到面板值
     const manualAtkP = (parseFloat(($("manual_attackPct") || {}).value) || 0) / 100;
     const totalAtkP  = manualAtkP + (t.atkP || 0) / 100;
@@ -1308,6 +1324,7 @@ function setupSimulation(basic, stat) {
     // 攻擊% 與 全屬% 疊到手動填入區的基準百分比上
     state.buffAtkP = t.atkP || 0;
     state.buffAllP = t.allP || 0;
+    state.hpBuild  = hpBuild;
     updateDerivedClear();
     function setV(id, v) { $("base_" + id).value = v; }
   }
@@ -1334,9 +1351,9 @@ function setupSimulation(basic, stat) {
       localStorage.setItem(saveKey, JSON.stringify(data));
       updateDerivedClear();
       updateManualWarn();
-      // 爆發占比會改變規範戒指的等效值;攻擊%會改變裸攻還原 → 皆需重算
-      if (id === "burst") { BuffUI.refresh(); fillBaseline(); }
-      if (id === "attackPct") fillBaseline();
+      // 爆發占比會改變溢出率;各項%與不吃%值會改變裸值還原 → 皆需重算基準
+      if (id === "burst") BuffUI.refresh();
+      fillBaseline();
     });
   }
   $("base_mainFinal").addEventListener("input", updateDerivedClear);
@@ -1368,8 +1385,10 @@ function setupSimulation(basic, stat) {
 
   function updateDerivedClear() {
     const gv = (id) => parseFloat(($(id) || {}).value) || 0;
-    const mc = Engine.deriveClear(gv("base_mainFinal"), gv("manual_mainPct") / 100, gv("manual_mainUnique"));
-    const nc = Engine.deriveClear(gv("base_minorFinal"), gv("manual_minorPct") / 100, gv("manual_minorUnique"));
+    // 反推裸值須用「總%」= 手動填入 + buff 提供的全屬%/攻擊%
+    const allP = (state.hpBuild ? 0 : (state.buffAllP || 0)) / 100;
+    const mc = Engine.deriveClear(gv("base_mainFinal"), gv("manual_mainPct") / 100 + allP, gv("manual_mainUnique"));
+    const nc = Engine.deriveClear(gv("base_minorFinal"), gv("manual_minorPct") / 100 + (state.buffAllP || 0) / 100, gv("manual_minorUnique"));
     const buffAtkP = (state.buffAtkP || 0) / 100;
     const ac = gv("base_attack") / (1 + gv("manual_attackPct") / 100 + buffAtkP);
     $("derivedClear").textContent =
@@ -1416,7 +1435,7 @@ function runSimulation() {
   const baseline = {
     build:       $("base_build").value,
     mainFinal:   gv("base_mainFinal"),
-    mainPct:     pct(gv("manual_mainPct") + (state.buffAllP || 0)),
+    mainPct:     pct(gv("manual_mainPct") + (state.hpBuild ? 0 : (state.buffAllP || 0))),
     mainUnique:  gv("manual_mainUnique"),
     minorFinal:  gv("base_minorFinal"),
     minorPct:    pct(gv("manual_minorPct") + (state.buffAllP || 0)),
