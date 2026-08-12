@@ -744,7 +744,10 @@ const BASE_FIELDS = [
   ["crit",       "爆擊傷害%",            "num"],
   ["fd",         "最終傷害%",            "num"],
   ["ignore",     "無視防禦%",            "num"],
-  ["bossPdr",    "目標BOSS防禦%",        "num"],
+];
+// 目標設定(獨立一列)
+const TARGET_FIELDS = [
+  ["bossPdr", "目標BOSS防禦%", "num"],
 ];
 const MANUAL_FIELDS = [
   ["attackPct",   "攻擊%"],
@@ -808,15 +811,19 @@ function setupSimulation(basic, stat) {
   // 基準值欄位
   const bg = $("baseGrid");
   bg.innerHTML = "";
-  for (const [id, label, type] of BASE_FIELDS) {
-    if (type === "select") {
-      const opts = Object.entries(B).map(([k, v]) =>
-        `<option value="${k}" ${k === build ? "selected" : ""}>${v.label}</option>`).join("");
-      bg.insertAdjacentHTML("beforeend",
-        `<div class="field"><label>${label}(自動判定,可修改)</label><select id="base_${id}">${opts}</select></div>`);
-    } else {
-      bg.insertAdjacentHTML("beforeend",
-        `<div class="field"><label>${label}</label><input type="number" step="any" id="base_${id}"></div>`);
+  const tg = $("targetGrid");
+  tg.innerHTML = "";
+  for (const [grid, fields] of [[bg, BASE_FIELDS], [tg, TARGET_FIELDS]]) {
+    for (const [id, label, type] of fields) {
+      if (type === "select") {
+        const opts = Object.entries(B).map(([k, v]) =>
+          `<option value="${k}" ${k === build ? "selected" : ""}>${v.label}</option>`).join("");
+        grid.insertAdjacentHTML("beforeend",
+          `<div class="field"><label>${label}(自動判定,可修改)</label><select id="base_${id}">${opts}</select></div>`);
+      } else {
+        grid.insertAdjacentHTML("beforeend",
+          `<div class="field"><label>${label}</label><input type="number" step="any" id="base_${id}"></div>`);
+      }
     }
   }
   $("base_build").onchange = fillBaseline;
