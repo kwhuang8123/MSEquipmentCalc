@@ -1,7 +1,7 @@
-# 楓之谷TMS 裝備模擬計算機(測試版)
+# TMS 楓之谷裝備模擬計算機
 
-輸入 TMS 角色名稱,自動讀取機體與裝備,模擬屬性 ±n% 後計算總體變強幅度。
-純前端單檔(`index.html`),無後端、無框架、無建置流程。
+輸入 TMS 角色名稱,自動讀取機體與裝備,模擬屬性增減後計算總體變強幅度。
+純前端靜態網站,無後端、無框架、無建置流程(原生 ES modules)。
 
 ## 使用方式
 
@@ -9,11 +9,28 @@
 2. 用瀏覽器打開 `index.html`,貼上 Key 並儲存(只存在瀏覽器 localStorage)
 3. 輸入角色名稱查詢 → 基準值自動帶入 → 填模擬變化量 → 計算增幅
 
-本機測試建議跑個簡單伺服器(部分瀏覽器對 `file://` 的 fetch 有限制):
+直接用瀏覽器開啟 `index.html` 即可(採傳統 script 載入,不需要伺服器);
+若要模擬正式環境也可跑 `python -m http.server 8000`。
+
+## 專案結構
 
 ```
-python -m http.server 8000
-# 開 http://localhost:8000
+index.html              版面骨架(約 200 行)
+css/style.css           樣式(含 5 種主題的 CSS 變數)
+js/engine.js            計算引擎 —— 純函式,無 DOM 相依
+js/data/buffs.js        Buff 資料表、分組、互斥規則、數量上限
+js/main.js              UI:API 客戶端、查詢、Buff 面板、模擬、方案
+test/engine.test.js     引擎單元測試
+cloudflare-worker.js    API Proxy(部署用,見下方)
+```
+
+載入順序為 `engine.js` → `data/buffs.js` → `main.js`(前兩者提供全域 `Engine`、`BUFF_DATA` 等)。
+同一份檔案也支援 `require()`,故單元測試可直接引用而不必另行維護。
+
+執行測試(不需安裝任何套件):
+
+```
+node test/engine.test.js
 ```
 
 ## 若遇到 CORS 錯誤
@@ -63,7 +80,7 @@ key 寫進前端等於公開送人,額度會被盜刷、key 可能被停用。�
 | 無視防禦 | 乘算疊加 `1-(1-a)(1-b)`,效益依「目標BOSS防禦%」(預設 300)計算 |
 | 終傷 | 以面板值加算(近似;實際新終傷來源為乘算) |
 
-計算引擎為 `index.html` 內 `Engine` 模組(純函式),已通過 29 項單元測試,
+計算引擎為 `js/engine.js`(純函式、無 DOM 相依),已通過 47 項單元測試,
 數值與 MapleStoryCalculatorV3 的公式對照一致(程式碼為重新實作,非移植)。
 
 ## 使用的 API 端點
