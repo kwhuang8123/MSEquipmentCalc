@@ -777,7 +777,10 @@ const BASE_FIELDS = [
   ["crit",       "爆擊傷害%",            "num"],
   ["fd",         "最終傷害%",            "num"],
   ["ignore",     "無視防禦%",            "num"],
-  ["bossPdr",    "目標BOSS防禦%",        "num"],
+];
+// 目標設定(獨立一列)
+const TARGET_FIELDS = [
+  ["bossPdr", "目標BOSS防禦%", "num"],
 ];
 const MANUAL_FIELDS = [
   ["attackPct",   "攻擊%"],
@@ -841,19 +844,33 @@ function setupSimulation(basic, stat) {
   // 基準值欄位
   const bg = $("baseGrid");
   bg.innerHTML = "";
-  for (const [id, label, type] of BASE_FIELDS) {
-    if (type === "select") {
-      const opts = Object.entries(B).map(([k, v]) =>
-        `<option value="${k}" ${k === build ? "selected" : ""}>${v.label}</option>`).join("");
-      bg.insertAdjacentHTML("beforeend",
-        `<div class="field"><label>${label}(自動判定,可修改)</label><select id="base_${id}">${opts}</select></div>`);
-    } else {
-      bg.insertAdjacentHTML("beforeend",
-        `<div class="field"><label>${label}</label><input type="number" step="any" id="base_${id}"></div>`);
+  const tg = $("targetGrid");
+  tg.innerHTML = "";
+  for (const [grid, fields] of [[bg, BASE_FIELDS], [tg, TARGET_FIELDS]]) {
+    for (const [id, label, type] of fields) {
+      if (type === "select") {
+        const opts = Object.entries(B).map(([k, v]) =>
+          `<option value="${k}" ${k === build ? "selected" : ""}>${v.label}</option>`).join("");
+        grid.insertAdjacentHTML("beforeend",
+          `<div class="field"><label>${label}(自動判定,可修改)</label><select id="base_${id}">${opts}</select></div>`);
+      } else {
+        grid.insertAdjacentHTML("beforeend",
+          `<div class="field"><label>${label}</label><input type="number" step="any" id="base_${id}"></div>`);
+      }
     }
   }
   // 體系變動會改變主/副屬對應的屬性,建議值須一併重算
   $("base_build").onchange = () => { fillBaseline(); renderSuggestions(); };
+
+  // 目標BOSS防禦%:依角色記憶,不隨 buff/基準值重算而被覆寫
+  const targetKey = "msec_target_" + (basic.character_name || "");
+  const savedPdr = localStorage.getItem(targetKey);
+  $("base_bossPdr").value = savedPdr != null && savedPdr !== "" ? savedPdr : 300;
+  $("base_bossPdr").addEventListener("input", () => {
+    localStorage.setItem(targetKey, $("base_bossPdr").value);
+    if (state.planKey) renderPlans();          // 影響無視防禦效益 → 方案重算
+    if (state.buffReady) BuffUI.redrawActive();
+  });
 
   function fillBaseline() {
     const bk = $("base_build").value;
@@ -898,7 +915,7 @@ function setupSimulation(basic, stat) {
     setV("fd", m["最終傷害"] || 0);
     // 無視防禦為乘算疊加
     setV("ignore", r(Engine.combineIgnore((m["無視防禦率"] || 0) / 100, (t.ign || 0) / 100) * 100));
-    setV("bossPdr", 300);
+    // 目標BOSS防禦%為使用者設定值,不隨 buff 變動重設
     // 攻擊% 與 全屬% 疊到手動填入區的基準百分比上
     state.buffAtkP = t.atkP || 0;
     state.buffAllP = t.allP || 0;
