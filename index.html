@@ -97,10 +97,12 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
 .plan{display:flex;gap:12px;align-items:center;background:var(--card2);border-radius:8px;padding:10px 12px;margin-bottom:8px;flex-wrap:wrap}
 .plan .rank{font-size:.75rem;color:var(--muted);width:24px}
 .plan .pname{font-weight:700;flex:1;min-width:120px}
-.plan .pval{font-size:1.05rem;font-weight:800}
-.plan .pval.up{color:var(--good)}.plan .pval.down{color:var(--bad)}
 .plan .pdesc{flex-basis:100%;font-size:.72rem;color:var(--muted)}
-.plan .pcost{font-size:.75rem;color:var(--accent2);min-width:150px;text-align:right}
+.plan .pcol{display:flex;flex-direction:column;align-items:flex-end;min-width:104px;flex-shrink:0}
+.plan .pcol .ck{font-size:.68rem;color:var(--muted);line-height:1.3}
+.plan .pcol .cv{font-size:.95rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.3}
+.plan .pcol .cv.up{color:var(--good)}
+.plan .pcol .cv.down{color:var(--bad)}
 /* buff */
 #buffTabs button{padding:5px 12px;font-size:.78rem}
 .buffgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
@@ -111,8 +113,15 @@ body[data-theme="light"] .grade-特殊{color:#1e88c7}
 .buff .bnp{color:var(--accent2);font-size:.68rem;flex-shrink:0}
 .buff.on{outline:1px solid var(--accent)}
 .buff .bjob{color:var(--muted);font-size:.68rem}
+.buff .bown{font-size:.66rem;color:var(--btn-text);background:var(--accent);border-radius:5px;padding:1px 5px}
+.buff .bgain{font-size:.7rem;color:var(--good);flex-shrink:0;font-variant-numeric:tabular-nums}
 .bgroup{font-size:.75rem;color:var(--accent);margin:12px 0 6px;padding-left:2px;border-left:3px solid var(--accent)}
 .bgroup:first-child{margin-top:0}
+/* 醒目提醒 */
+.notice{margin:0 0 14px;padding:10px 14px;border-radius:8px;font-size:.82rem;line-height:1.6;
+  color:var(--bad);border:1px solid var(--bad);background:var(--card2)}
+.notice b{color:var(--text)}
+.notice::before{content:"⚠ ";font-weight:700}
 /* 未填提示 */
 .warn{margin-top:12px;padding:9px 12px;border-radius:8px;font-size:.78rem;line-height:1.6;
   color:var(--accent2);border:1px solid var(--accent2);background:var(--card2)}
@@ -128,6 +137,7 @@ input.unfilled{border-color:var(--accent2)}
 .rchip .rdel{cursor:pointer;color:var(--muted);font-size:.9rem;line-height:1;padding:0 3px}
 .rchip .rdel:hover{color:var(--bad)}
 .plan .best{font-size:.68rem;color:var(--btn-text);background:var(--good);border-radius:6px;padding:1px 6px}
+.plan .drift{margin-left:8px;color:var(--accent2);font-size:.7rem}
 .plan button{padding:4px 10px;font-size:.75rem}
 /* theme switcher */
 .themes{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
@@ -140,7 +150,7 @@ input.unfilled{border-color:var(--accent2)}
 </head>
 <body>
 <div class="wrap">
-  <h1>楓之谷<span>TMS</span> 裝備模擬計算機 <small style="font-size:.7rem;color:var(--muted)">測試版</small></h1>
+  <h1><span>TMS</span> 楓之谷裝備模擬計算機</h1>
   <div class="sub">輸入角色名稱讀取機體與裝備,模擬屬性增減後計算總體變強幅度</div>
 
   <div class="themes" id="themeBar"><span>主題:</span></div>
@@ -186,6 +196,7 @@ input.unfilled{border-color:var(--accent2)}
   <!-- 角色資訊(機體 / 裝備 分頁) -->
   <div class="card hidden" id="cardChar">
     <h2 id="hChar"><span class="stepno"></span>角色機體</h2>
+    <div class="notice">請先將裝備切換成<b>打王 Set</b>,再上下線一次讓 API 更新,查到的面板才會是打王配置。</div>
     <div class="row" style="margin-bottom:12px">
       <button id="tabBtnInfo">機體資訊</button>
       <button id="tabBtnEquip" class="ghost">裝備一覽 <span id="equipCount"></span></button>
@@ -450,6 +461,18 @@ const Engine = (() => {
     return { factors: f, total };
   }
 
+  // 合併兩組變化量(數值相加;無視防禦以乘算疊加)
+  function mergeDelta(a, b) {
+    const out = { ...a };
+    for (const [k, v] of Object.entries(b || {})) {
+      if (!v) continue;
+      if (k === "ignore") out.ignore = 1 - (1 - (out.ignore || 0)) * (1 - v);
+      else if (k === "fdFrom" || k === "fdTo") out[k] = v;
+      else out[k] = (out[k] || 0) + v;
+    }
+    return out;
+  }
+
   // 相對戰力(僅用於比較兩種狀態的傷害比例,非絕對傷害值)
   function power(b) {
     return attributePower(b.mainFinal, b.minorFinal, b.build)
@@ -467,10 +490,11 @@ const Engine = (() => {
    * 這樣爆發專用 buff 之間的相乘效果只會落在爆發窗內,
    * 不會像「等效常駐值」那樣把交叉項稀釋成 p²。
    */
-  function simulateWeighted(normal, burst, delta, p) {
+  //   burstExtra:僅作用於爆發期的額外變化量(例如爆發專用技能升級)
+  function simulateWeighted(normal, burst, delta, p, burstExtra) {
     const rn = simulate(normal, delta);
     if (!burst || !(p > 0)) return { factors: rn.factors, total: rn.total, normal: rn, burst: null, R: 1 };
-    const rb = simulate(burst, delta);
+    const rb = simulate(burst, burstExtra ? mergeDelta(delta, burstExtra) : delta);
     const R = power(burst) / power(normal);
     const wOld = p * R + (1 - p);
     const wNew = p * R * rb.total + (1 - p) * rn.total;
@@ -479,7 +503,7 @@ const Engine = (() => {
 
   return { BUILDS, detectBuild, parseFinalStat, sumStats, attributePower,
            combineIgnore, defenseFactor, deriveClear, simulate, power,
-           simulateWeighted, CRIT_BASE };
+           simulateWeighted, mergeDelta, CRIT_BASE };
 })();
 
 /* =========================================================
@@ -909,7 +933,8 @@ const BUFF_EXCLUSIVE = [
   ["275等椅子", "榮譽靈藥"],
 ];
 // 各分類同時啟用上限
-const BUFF_LIMIT = { pass: 13 };
+// 連結技能:他人 12 條為上限,自身那條不佔額度(合計 13)
+const BUFF_LIMIT = { pass: 12 };
 
 const BuffUI = (() => {
   const CATS = [["skill", "技能"], ["pot", "藥水"], ["pass", "傳授技能"]];
@@ -999,6 +1024,75 @@ const BuffUI = (() => {
   const burstTotals = () => totals(true);
   const hasBurst = () => Object.keys(burstTotals()).length > 0;
 
+  // buff 效果 → 引擎變化量(供「升到滿等」試算)
+  function effToDelta(eff, scale) {
+    const d = {}, s = scale;
+    const def = Engine.BUILDS[($("base_build") || {}).value] || Engine.BUILDS.str;
+    const hpBuild = ($("base_build") || {}).value === "hp";
+    const add = (k, v) => { if (v) d[k] = (d[k] || 0) + v; };
+    for (const [k, n0] of Object.entries(eff)) {
+      const n = n0 * s;
+      if (k === "atk")   add("attackFlat", n);
+      if (k === "atkP")  add("attackPct", n / 100);
+      if (k === "dmg")   add("dmg", n / 100);
+      if (k === "boss")  add("boss", n / 100);
+      if (k === "crit")  add("crit", n / 100);
+      if (k === "ign")   add("ignore", n / 100);
+      if (k === "allP") { if (!hpBuild) add("mainPct", n / 100); add("minorPct", n / 100); }
+      if (k === "all") { if (!hpBuild) add("mainFlat", n * def.main.length); add("minorFlat", n * def.minor.length); }
+      if (k === "main")  add("mainFlat", n);
+      if (k === "sub")   add("minorFlat", n);
+      if (k === "sub2" && def.minor.length > 1) add("minorFlat", n);
+      if (k === "hp" && hpBuild) add("mainFlat", n);
+    }
+    return d;
+  }
+
+  // 由目前等級升到滿等的增幅%(null = 已滿等或非等級型)
+  function levelUpGain(cat, b) {
+    const lv = levelKeys(b);
+    if (!lv || typeof evaluate !== "function") return null;
+    const cur = Number(state[bid(cat, b)]);
+    if (!cur) return null;                       // 未啟用不試算
+    const max = lv[lv.length - 1];
+    if (cur >= max) return null;
+    const W = burstWindow();
+    const diff = {};
+    const a = effectAt(b, cur), z = effectAt(b, max);
+    for (const k of new Set([...Object.keys(a), ...Object.keys(z)])) {
+      const v = (z[k] || 0) - (a[k] || 0);
+      if (v) diff[k] = v;
+    }
+    if (!Object.keys(diff).length) return null;
+    if (b.burst) {
+      // 爆發專用:僅作用於爆發窗,依覆蓋率折算;超出部分溢出到平時
+      const p = burstRatio();
+      const Da = durationOf(b, cur), Dz = durationOf(b, max);
+      const coverZ = Math.min(Dz, W) / W, coverA = Math.min(Da, W) / W;
+      const spillZ = (p > 0 && p < 1) ? p * Math.max(Dz - W, 0) / (W * (1 - p)) : 0;
+      const spillA = (p > 0 && p < 1) ? p * Math.max(Da - W, 0) / (W * (1 - p)) : 0;
+      const zEff = effectAt(b, max), aEff = effectAt(b, cur);
+      const burstDelta = {}, normDelta = {};
+      for (const k of new Set([...Object.keys(aEff), ...Object.keys(zEff)])) {
+        const vb = (zEff[k] || 0) * coverZ - (aEff[k] || 0) * coverA;
+        const vn = (zEff[k] || 0) * spillZ - (aEff[k] || 0) * spillA;
+        if (vb) burstDelta[k] = vb;
+        if (vn) normDelta[k] = vn;
+      }
+      const r = evaluate(effToDelta(normDelta, 1), effToDelta(burstDelta, 1));
+      return (r.total - 1) * 100;
+    }
+    return (evaluate(effToDelta(diff, 1)).total - 1) * 100;
+  }
+
+  // 自身連結技能(角色本身職業提供的那一條)
+  function isOwnLink(b) {
+    const cls = ctx.className || "";
+    if (!b.job || !cls) return false;
+    return b.job.split("/").some(j => cls.includes(j) || j.includes(cls));
+  }
+  const ownLinkInList = () => (BUFF_DATA.pass || []).some(isOwnLink);
+
   // 爆發技能明細(供介面顯示換算過程)
   function burstDetail() {
     const p = burstRatio(), W = burstWindow(), rows = [];
@@ -1033,10 +1127,16 @@ const BuffUI = (() => {
     });
   }
 
-  // 已啟用數量(用於上限判斷)
+  // 佔用額度的已啟用數量(連結技能不計自身那條)
   function activeCount(cat) {
-    return (BUFF_DATA[cat] || []).filter(b => state[bid(cat, b)]).length;
+    return (BUFF_DATA[cat] || [])
+      .filter(b => state[bid(cat, b)] && !(cat === "pass" && isOwnLink(b))).length;
   }
+  // 自身連結技能是否已勾選
+  function ownLinkOn() {
+    return (BUFF_DATA.pass || []).some(b => isOwnLink(b) && state[bid("pass", b)]);
+  }
+  const limitOf = (cat) => BUFF_LIMIT[cat];
 
   function renderList(cat) {
     const body = $("buffBody");
@@ -1060,11 +1160,22 @@ const BuffUI = (() => {
   }
 
   function updateLimitHint(cat) {
-    const cap = BUFF_LIMIT[cat];
+    const cap = limitOf(cat);
     const el = $("buffLimit");
     if (!cap) { el.textContent = ""; return; }
     const n = activeCount(cat);
-    el.textContent = `已選 ${n} / ${cap} 種(達上限後需先取消其他項目)`;
+    let txt = `已選 ${n} / ${cap} 種`;
+    if (cat === "pass") {
+      txt = `已選 ${n} / ${cap}(他人)`;
+      if (ownLinkInList()) {
+        txt += ownLinkOn()
+          ? ` ＋ 自身 1 條(不佔額度,合計 ${n + 1} / 13)`
+          : " ＋ 自身 1 條(不佔額度,尚未勾選)";
+      } else {
+        txt += ";自身職業的連結技能非戰鬥向,未列於表中";
+      }
+    }
+    el.textContent = txt;
     el.style.color = n >= cap ? "var(--accent2)" : "var(--muted)";
   }
 
@@ -1083,21 +1194,34 @@ const BuffUI = (() => {
       const tip = Object.entries(effectAt(b, shownLv))
         .map(([k, v]) => `${LABELS[k] || k}+${v}${PCT.has(k) ? "%" : ""}`).join(" / ");
       row.title = (b.r ? b.r + " — " : "") + (lv ? `Lv${shownLv}:${tip}` : tip);
+      const own = cat === "pass" && isOwnLink(b);
       let html = `<input type="checkbox" ${on ? "checked" : ""}>
-        <span class="bn">${esc(b.n)}${b.job ? ` <span class="bjob">${esc(b.job)}</span>` : ""}</span>`;
+        <span class="bn">${esc(b.n)}${own ? ` <span class="bown" title="你自己職業提供的連結技能">自身</span>` : ""}` +
+        `${b.job ? ` <span class="bjob">${esc(b.job)}</span>` : ""}</span>`;
       if (b.np) html += `<span class="bnp" title="非常駐技能,以等效值計算">等效</span>`;
       if (lv) html += `<select>${lv.map(l =>
         `<option value="${l}" ${Number(state[key]) === l ? "selected" : ""}>Lv${l}</option>`).join("")}</select>`;
       row.innerHTML = html;
+
+      // 升到滿等的增幅(僅對已啟用且未滿等者顯示)
+      const gain = levelUpGain(cat, b);
+      if (gain != null && Math.abs(gain) > 0.0001) {
+        const g = document.createElement("span");
+        g.className = "bgain";
+        g.textContent = `滿等 +${gain.toFixed(2)}%`;
+        g.title = `由 Lv${state[key]} 升到 Lv${lv[lv.length - 1]} 的總增幅`;
+        row.appendChild(g);
+      }
       const cb = row.querySelector("input"), sel = row.querySelector("select");
       // 傳授技能預設取最低級(Lv2;小偷的狡詐/實戰知識為 Lv6),其餘預設滿級
       if (sel && !state[key]) sel.value = String(cat === "pass" ? lv[0] : lv[lv.length - 1]);
       const sync = () => {
-        // 數量上限
-        const cap = BUFF_LIMIT[cat];
-        if (cb.checked && cap && !state[key] && activeCount(cat) >= cap) {
+        // 數量上限(自身連結技能不佔額度)
+        const cap = limitOf(cat);
+        const freeSlot = cat === "pass" && isOwnLink(b);
+        if (cb.checked && cap && !state[key] && !freeSlot && activeCount(cat) >= cap) {
           cb.checked = false;
-          $("buffLimit").textContent = `已達上限 ${cap} 種,請先取消其他項目`;
+          $("buffLimit").textContent = `已達上限 ${cap} 條(他人),請先取消其他項目`;
           $("buffLimit").style.color = "var(--bad)";
           return;
         }
@@ -1176,9 +1300,10 @@ const BuffUI = (() => {
     summarize();
   }
 
-  function init(charName, statMap) {
+  function init(charName, statMap, className) {
     saveKey = "msec_buff_" + (charName || "");
     ctx.buffDuration = (statMap && statMap["Buff持續時間"]) || 0;
+    ctx.className = className || "";
     state = {}; mode = "hot";
     try {
       const raw = JSON.parse(localStorage.getItem(saveKey) || "{}");
@@ -1199,10 +1324,18 @@ const BuffUI = (() => {
     summarize();   // 爆發占比影響溢出率與明細,需重算摘要
   }
 
+  // 重繪目前分頁(升等增幅會隨基準值變動)
+  function redrawActive() {
+    const tabs = $("buffTabs");
+    if (!tabs || !tabs.children.length) return;
+    const i = [...tabs.children].findIndex(b => b.className !== "ghost");
+    renderList(CATS[Math.max(i, 0)][0]);
+  }
+
   $("btnBuffHot").onclick = () => setMode("hot");
   $("btnBuffCold").onclick = () => setMode("cold");
 
-  return { init, refresh, totals, burstTotals, hasBurst, LABELS };
+  return { init, refresh, redrawActive, totals, burstTotals, hasBurst, LABELS };
 })();
 
 /* ---------- 模擬 ---------- */
@@ -1230,6 +1363,8 @@ const BURST_FIELDS = [
   ["burst",    "估計爆發占比%(10~90)"],
   ["burstSec", "爆發窗秒數(預設20)"],
 ];
+// 首次載入的預設值
+const MANUAL_DEFAULTS = { burst: 50, burstSec: 20 };
 // 有預設值、未填不需警告的欄位
 const MANUAL_OPTIONAL = new Set(["burstSec"]);
 // 未填時的影響說明
@@ -1341,6 +1476,9 @@ function setupSimulation(basic, stat) {
     state.hpBuild  = hpBuild;
     state.buffFlat = { main: mainFlatBuff, minor: minorFlatBuff, atk: t.atk || 0 };
     updateDerivedClear();
+    // 基準值變動 → 方案增幅與 buff 升等效益一併重算
+    if (state.planKey) renderPlans();
+    if (state.buffReady) BuffUI.redrawActive();
     function setV(id, v) { $("base_" + id).value = v; }
   }
   // buff 變動時即時重算基準值
@@ -1355,7 +1493,8 @@ function setupSimulation(basic, stat) {
     for (const [id, label] of fields) {
       grid.insertAdjacentHTML("beforeend",
         `<div class="field"><label>${label}</label><input type="number" step="any" id="manual_${id}" placeholder="${id === "burstSec" ? "20" : "0"}"></div>`);
-      if (saved[id] != null) $("manual_" + id).value = saved[id];
+      const v = saved[id] != null ? saved[id] : MANUAL_DEFAULTS[id];
+      if (v != null) $("manual_" + id).value = v;
     }
   }
   for (const [id] of ALL_MANUAL) {
@@ -1377,8 +1516,11 @@ function setupSimulation(basic, stat) {
   $("base_minorFinal").addEventListener("input", updateDerivedClear);
 
   // 手動欄位就緒後才載入 Buff(規範戒指需讀取爆發占比),最後才帶入基準值
-  BuffUI.init(basic.character_name, m);
+  state.buffReady = false;
+  BuffUI.init(basic.character_name, m, basic.character_class);
   fillBaseline();
+  state.buffReady = true;
+  BuffUI.redrawActive();
   updateDerivedClear();
   updateManualWarn();
 
@@ -1451,11 +1593,12 @@ function setupSimulation(basic, stat) {
   };
 }
 
-function runSimulation() {
-  const gv = (id) => parseFloat($(id).value) || 0;
+/* ---------- 共用計算入口 ---------- */
+// 由目前⑥的基準值欄位 + ④手動填入 組出 baseline
+function buildBaseline() {
+  const gv = (id) => parseFloat(($(id) || {}).value) || 0;
   const pct = (v) => v / 100;
-
-  const baseline = {
+  return {
     build:       $("base_build").value,
     mainFinal:   gv("base_mainFinal"),
     mainPct:     pct(gv("manual_mainPct") + (state.hpBuild ? 0 : (state.buffAllP || 0))),
@@ -1472,31 +1615,20 @@ function runSimulation() {
     ignore:      pct(gv("base_ignore")),
     bossPdr:     pct(gv("base_bossPdr")),
   };
-  const delta = {
-    mainFlat:    gv("delta_mainFlat"),
-    mainPct:     pct(gv("delta_mainPct")),
-    mainUnique:  gv("delta_mainUnique"),
-    minorFlat:   gv("delta_minorFlat"),
-    minorPct:    pct(gv("delta_minorPct")),
-    minorUnique: gv("delta_minorUnique"),
-    attackFlat:  gv("delta_attackFlat"),
-    attackPct:   pct(gv("delta_attackPct")),
-    dmg:         pct(gv("delta_dmg")),
-    boss:        pct(gv("delta_boss")),
-    crit:        pct(gv("delta_crit")),
-    ignore:      pct(gv("delta_ignore")),
-    fdFrom:      pct(gv("delta_fdFrom")),
-    fdTo:        pct(gv("delta_fdTo")),
-  };
+}
 
-  // 爆發期基準值:疊上爆發專用 buff(規範戒指、靈魂契約)
+// 爆發期基準值(疊上爆發專用 buff)與爆發占比
+function buildBurst(baseline) {
+  const gv = (id) => parseFloat(($(id) || {}).value) || 0;
+  const pct = (v) => v / 100;
   const bt = BuffUI.burstTotals();
   const p = Math.min(Math.max(gv("manual_burst") / 100, 0), 1);
-  let burstBase = null;
-  if (Object.keys(bt).length && p > 0) {
-    const atkClear = baseline.attack / (1 + baseline.attackPct);
-    const nAtkP = baseline.attackPct + pct(bt.atkP || 0);
-    burstBase = {
+  if (!Object.keys(bt).length || !(p > 0)) return { burstBase: null, p };
+  const atkClear = baseline.attack / (1 + baseline.attackPct);
+  const nAtkP = baseline.attackPct + pct(bt.atkP || 0);
+  return {
+    p,
+    burstBase: {
       ...baseline,
       attackPct: nAtkP,
       attack:    (atkClear + (bt.atk || 0)) * (1 + nAtkP),
@@ -1504,10 +1636,45 @@ function runSimulation() {
       boss:      baseline.boss + pct(bt.boss || 0),
       crit:      baseline.crit + pct(bt.crit || 0),
       ignore:    Engine.combineIgnore(baseline.ignore, pct(bt.ign || 0)),
-    };
-  }
+    },
+  };
+}
 
-  const res = Engine.simulateWeighted(baseline, burstBase, delta, p);
+// 以「目前的角色狀態」評估一組變化量
+function evaluate(delta, burstExtra) {
+  const baseline = buildBaseline();
+  const { burstBase, p } = buildBurst(baseline);
+  return Engine.simulateWeighted(baseline, burstBase, delta, p, burstExtra);
+}
+
+// DOM → 原始字串變化量(供儲存)
+function readRawDelta() {
+  const raw = {};
+  for (const [id] of DELTA_FIELDS) raw[id] = $("delta_" + id).value;
+  raw.fdFrom = $("delta_fdFrom").value;
+  raw.fdTo = $("delta_fdTo").value;
+  return raw;
+}
+
+// 原始字串 → 引擎用的數值變化量
+function toDelta(raw) {
+  const g = (k) => parseFloat(raw[k]) || 0;
+  const pct = (v) => v / 100;
+  return {
+    mainFlat: g("mainFlat"), mainPct: pct(g("mainPct")), mainUnique: g("mainUnique"),
+    minorFlat: g("minorFlat"), minorPct: pct(g("minorPct")), minorUnique: g("minorUnique"),
+    attackFlat: g("attackFlat"), attackPct: pct(g("attackPct")),
+    dmg: pct(g("dmg")), boss: pct(g("boss")), crit: pct(g("crit")),
+    ignore: pct(g("ignore")), fdFrom: pct(g("fdFrom")), fdTo: pct(g("fdTo")),
+  };
+}
+
+function runSimulation() {
+  const rawDelta = readRawDelta();
+  const delta = toDelta(rawDelta);
+  const p = Math.min(Math.max((parseFloat(($("manual_burst") || {}).value) || 0) / 100, 0), 1);
+
+  const res = evaluate(delta);
   const { factors, total } = res;
   const box = $("resultBox");
   box.classList.remove("hidden");
@@ -1541,10 +1708,6 @@ function runSimulation() {
     bd.innerHTML = `<div class="bd"><div class="k">無變化</div><div class="v">±0.00%</div></div>`;
 
   // 記錄本次結果供「儲存方案」使用
-  const rawDelta = {};
-  for (const [id] of DELTA_FIELDS) rawDelta[id] = $("delta_" + id).value;
-  rawDelta.fdFrom = $("delta_fdFrom").value;
-  rawDelta.fdTo = $("delta_fdTo").value;
   state.lastSim = { totalPct, rawDelta, ts: Date.now() };
   $("btnSavePlan").disabled = false;
 }
@@ -1582,10 +1745,16 @@ $("btnSavePlan").onclick = () => {
   renderPlans();
 };
 
+// 以「目前的角色狀態」重算方案增幅,確保所有方案站在同一基準比較
+function livePct(plan) {
+  try { return (evaluate(toDelta(plan.rawDelta || {})).total - 1) * 100; }
+  catch (_) { return plan.totalPct; }
+}
+
 // 每 1% 增幅的成本(CP 指標,越低越好);無成本或增幅≤0 → null
 function unitCost(p) {
-  if (p.cost == null || !(p.totalPct > 0)) return null;
-  return p.cost / p.totalPct;
+  if (p.cost == null || !(p.pct > 0)) return null;
+  return p.cost / p.pct;
 }
 
 $("sortPct").onclick = () => setPlanSort("pct");
@@ -1600,15 +1769,16 @@ function setPlanSort(mode) {
 function renderPlans() {
   const list = $("planList");
   const mode = state.planSort || "pct";
-  const plans = loadPlans().slice().sort((a, b) => {
+  // 以當前基準即時重算每個方案(p.pct),存檔值(p.totalPct)僅供對照
+  const plans = loadPlans().map(p => ({ ...p, pct: livePct(p) })).sort((a, b) => {
     if (mode === "cp") {
       const ua = unitCost(a), ub = unitCost(b);
-      if (ua == null && ub == null) return b.totalPct - a.totalPct;
+      if (ua == null && ub == null) return b.pct - a.pct;
       if (ua == null) return 1;   // 無成本者排後
       if (ub == null) return -1;
       return ua - ub;             // 每1%成本越低越前
     }
-    return b.totalPct - a.totalPct;
+    return b.pct - a.pct;
   });
   list.innerHTML = "";
   if (!plans.length) {
@@ -1619,21 +1789,23 @@ function renderPlans() {
   plans.forEach((p, i) => {
     const row = document.createElement("div");
     row.className = "plan";
-    const cls = p.totalPct >= 0 ? "up" : "down";
+    const cls = p.pct >= 0 ? "up" : "down";
     const uc = unitCost(p);
     const isBest = i === 0 && plans.length > 1 && (mode === "pct" || uc != null);
     const bestLabel = mode === "cp" ? "CP值最高" : "效益最高";
-    const costText = p.cost != null
-      ? `成本 ${p.cost.toLocaleString()}${uc != null ? `|每1% ≈ ${uc.toLocaleString(undefined, { maximumFractionDigits: 1 })}` : ""}`
-      : "未填成本";
+    const num = (x, d = 0) => x.toLocaleString(undefined, { maximumFractionDigits: d });
+    // 基準值變動後與存檔時的差異
+    const drift = (p.totalPct != null && Math.abs(p.pct - p.totalPct) > 0.005)
+      ? `<span class="drift" title="基準值已變動,顯示的是以目前狀態重算的結果">存檔時 ${p.totalPct >= 0 ? "+" : ""}${p.totalPct.toFixed(2)}%</span>` : "";
     row.innerHTML =
       `<div class="rank">#${i + 1}</div>
        <div class="pname">${esc(p.name)}${isBest ? ` <span class="best">${bestLabel}</span>` : ""}</div>
-       <div class="pcost">${esc(costText)}</div>
-       <div class="pval ${cls}">${p.totalPct >= 0 ? "+" : ""}${p.totalPct.toFixed(2)}%</div>
+       <div class="pcol"><span class="ck">成本</span><span class="cv">${p.cost != null ? num(p.cost) : "—"}</span></div>
+       <div class="pcol"><span class="ck">每 1% 成本</span><span class="cv">${uc != null ? num(uc, 1) : "—"}</span></div>
+       <div class="pcol"><span class="ck">增幅${drift ? " *" : ""}</span><span class="cv ${cls}">${p.pct >= 0 ? "+" : ""}${p.pct.toFixed(2)}%</span></div>
        <button class="ghost" data-act="load">載入</button>
        <button class="ghost" data-act="del" style="color:var(--bad);border-color:var(--bad)">刪除</button>
-       <div class="pdesc">${esc(deltaDescription(p.rawDelta || {}))}</div>`;
+       <div class="pdesc">${esc(deltaDescription(p.rawDelta || {}))}${drift}</div>`;
     row.querySelector('[data-act="load"]').onclick = () => loadPlan(p);
     row.querySelector('[data-act="del"]').onclick = () => deletePlan(p.ts);
     list.appendChild(row);
