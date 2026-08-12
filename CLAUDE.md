@@ -98,7 +98,7 @@ python -m http.server 8932 --bind 127.0.0.1
 原因:等效常駐法會把爆發 buff 之間的交叉項稀釋成 p²(測試 engine.test.js:118-124
 明確驗證差額 = `(p−p²)(A−1)(B−1)`)。改動這裡務必保持兩段結構。
 
-`main.js` 的 `BuffUI.totals(onlyBurst)`(main.js:397-418)決定 buff 落在哪一段:
+`main.js` 的 `BuffUI.totals(onlyBurst)`(main.js:428-449)決定 buff 落在哪一段:
 
 - 爆發窗內覆蓋率 = `min(持續秒數, W) / W`
 - 溢出到平砍 = `p × max(持續秒數 − W, 0) / (W × (1 − p))`
@@ -107,21 +107,21 @@ W = 爆發窗秒數,由④「爆發窗秒數」欄位讀取,預設 20。
 
 ### DOM 即狀態
 
-**`evaluate()`(main.js:1039)每次都從 DOM 重新讀取 baseline**,沒有中央 store。
+**`evaluate()`(main.js:1154)每次都從 DOM 重新讀取 baseline**,沒有中央 store。
 連帶影響:
 
 - 已儲存的方案不存快照增幅,而是用 `livePct()` 以當前 DOM 狀態**即時重算**
-  (main.js:1144),存檔值 `totalPct` 僅用於顯示漂移標記。
-- Buff 的「滿等 +X%」試算(`levelUpGain`, main.js:447)同樣依賴 DOM,
+  (main.js:1259),存檔值 `totalPct` 僅用於顯示漂移標記。
+- Buff 的「滿等 +X%」試算(`levelUpGain`, main.js:480)同樣依賴 DOM,
   所以 `BuffUI` 必須在基準值欄位就緒後才能算 —— 這就是 `setupSimulation()`
-  結尾那段初始化順序的原因(main.js:913-918):
+  結尾那段初始化順序的原因(main.js:967-972):
   手動欄位 → `BuffUI.init` → `fillBaseline` → `buffReady = true` → `redrawActive`。
   **改動這段順序前先讀那幾行的註解。**
-- `window.onBuffChange = fillBaseline`(main.js:880)是 buff 變動回寫基準值的掛鉤。
+- `window.onBuffChange = fillBaseline`(main.js:931)是 buff 變動回寫基準值的掛鉤。
 
 ### API 與 proxy
 
-`main.js:4-48` 的 `Api` 模組。`SITE_PROXY`(main.js:7)硬編碼站方的 Cloudflare Worker
+`main.js:4-54` 的 `Api` 模組。`SITE_PROXY`(main.js:7)硬編碼站方的 Cloudflare Worker
 網址;有值時前端**不帶 key**,①API 設定卡自動收合。留空則退回「使用者自備 key 直連」。
 
 `cloudflare-worker.js` 需獨立部署,key 設在 Worker 環境變數 `NEXON_API_KEY`,
@@ -168,9 +168,14 @@ W = 爆發窗秒數,由④「爆發窗秒數」欄位讀取,預設 20。
 |---|---|
 | `msec_key` / `msec_base` | 使用者自備 API key / 自訂 base URL |
 | `msec_theme` / `msec_recent` | 主題、最近查詢角色(上限 8) |
-| `msec_buff_<角色名>` | `{ sel, mode }`,`mode` 為 hot/cold(有相容舊版純勾選表的分支,main.js:706) |
+| `msec_buff_<角色名>` | `{ sel, mode }`,`mode` 為 hot/cold(有相容舊版純勾選表的分支,main.js:738) |
 | `msec_manual_<角色名>` | ③手動填入欄位 |
+| `msec_target_<角色名>` | ⑤「目標BOSS防禦%」。**刻意獨立於基準值之外**,不隨 buff 變動被 `fillBaseline` 覆寫 |
 | `msec_plans_<角色名>` | ⑥儲存方案陣列 |
+
+⑤的基準值欄位每次 `fillBaseline()` 都會整批重寫,所以使用者手動改過的值會被 buff 變動沖掉。
+「目標BOSS防禦%」因此被移出 `BASE_FIELDS`、獨立成 `TARGET_FIELDS` 並自行記憶 —— 之後若有
+其他「使用者設定而非 API 帶入」的欄位,沿用這個模式,不要塞回 `BASE_FIELDS`。
 
 ### Buff 資料表 schema
 
@@ -182,7 +187,7 @@ W = 爆發窗秒數,由④「爆發窗秒數」欄位讀取,預設 20。
 - `r` 備註字串,顯示在 tooltip
 
 效果 key(`atk`/`atkP`/`dmg`/`boss`/`crit`/`ign`/`all`/`allP`/`main`/`sub`/`sub2`/`hp`)
-到引擎 delta 的映射在 `effToDelta()`(main.js:423-444)—— **新增效果 key 必須同步改那裡**,
+到引擎 delta 的映射在 `effToDelta()`(main.js:456-477)—— **新增效果 key 必須同步改那裡**,
 否則會被靜默忽略。
 
 `BUFF_GROUPS` 的 `null` 代表「該分類其餘未分組項目」;`BUFF_LIMIT.pass = 12`
@@ -199,6 +204,6 @@ W = 爆發窗秒數,由④「爆發窗秒數」欄位讀取,預設 20。
 - 註解、UI 文案、README 皆為繁體中文;識別字為英文。維持此風格。
 - 全形括號 `()` 用於中文文案,半形用於程式碼。
 - HTML 以 `insertAdjacentHTML` 組字串渲染,使用者可控內容一律經 `esc()`
-  (main.js:54)跳脫 —— 新增渲染程式碼時沿用。
+  (main.js:60)跳脫 —— 新增渲染程式碼時沿用。
 - Commit message 格式:subject 為純版號(`v1.3.1`),body 為繁體中文簡短說明(可留空)。
   此規範優先於全域的 Conventional Commits。
