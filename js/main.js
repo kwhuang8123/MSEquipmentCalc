@@ -828,6 +828,16 @@ function setupSimulation(basic, stat) {
   }
   $("base_build").onchange = fillBaseline;
 
+  // 目標BOSS防禦%:依角色記憶,不隨 buff/基準值重算而被覆寫
+  const targetKey = "msec_target_" + (basic.character_name || "");
+  const savedPdr = localStorage.getItem(targetKey);
+  $("base_bossPdr").value = savedPdr != null && savedPdr !== "" ? savedPdr : 300;
+  $("base_bossPdr").addEventListener("input", () => {
+    localStorage.setItem(targetKey, $("base_bossPdr").value);
+    if (state.planKey) renderPlans();          // 影響無視防禦效益 → 方案重算
+    if (state.buffReady) BuffUI.redrawActive();
+  });
+
   function fillBaseline() {
     const bk = $("base_build").value;
     const def = B[bk];
@@ -871,7 +881,7 @@ function setupSimulation(basic, stat) {
     setV("fd", m["最終傷害"] || 0);
     // 無視防禦為乘算疊加
     setV("ignore", r(Engine.combineIgnore((m["無視防禦率"] || 0) / 100, (t.ign || 0) / 100) * 100));
-    setV("bossPdr", 300);
+    // 目標BOSS防禦%為使用者設定值,不隨 buff 變動重設
     // 攻擊% 與 全屬% 疊到手動填入區的基準百分比上
     state.buffAtkP = t.atkP || 0;
     state.buffAllP = t.allP || 0;
