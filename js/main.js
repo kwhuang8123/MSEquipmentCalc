@@ -44,6 +44,12 @@ const Api = (() => {
     getBasic: (ocid) => call("/character/basic", { ocid }),
     getStat:  (ocid) => call("/character/stat", { ocid }),
     getEquip: (ocid) => call("/character/item-equipment", { ocid }),
+    // ③手動填入的建議值來源
+    getSymbol:      (ocid) => call("/character/symbol-equipment", { ocid }),
+    getHexaStat:    (ocid) => call("/character/hexamatrix-stat", { ocid }),
+    getHyperStat:   (ocid) => call("/character/hyper-stat", { ocid }),
+    getFamiliar:    (ocid) => call("/character/familiar", { ocid }),
+    getUnionRaider: (ocid) => call("/user/union-raider", { ocid }),
   };
 })();
 
@@ -52,7 +58,8 @@ const Api = (() => {
  * ========================================================= */
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const state = { statMap: null, build: "str", className: "", planKey: "", lastSim: null };
+const state = { statMap: null, build: "str", className: "", planKey: "", lastSim: null,
+                suggestSources: null };
 
 /* ---------- 主題 ---------- */
 const THEMES = [
@@ -150,6 +157,9 @@ function renderRecent() {
 }
 renderRecent();
 
+// 查詢序號:用來丟棄「使用者已改查別的角色」之後才回來的非同步結果
+let searchSeq = 0;
+
 async function search(preset) {
   const name = (preset || $("charName").value).trim();
   const errBox = $("searchErr");
@@ -160,15 +170,23 @@ async function search(preset) {
 
   $("btnSearch").disabled = true;
   $("btnSearch").textContent = "查詢中…";
+  const seq = ++searchSeq;
   try {
     const { ocid } = await Api.getOcid(name);
     const [basic, stat, equip] = await Promise.all([
       Api.getBasic(ocid), Api.getStat(ocid), Api.getEquip(ocid),
     ]);
+    state.suggestSources = null;
     renderCharacter(basic, stat);
     renderEquipment(equip);
     setupSimulation(basic, stat);
     pushRecent(basic.character_name || name);
+    // 建議值另外五個端點較慢,不擋主畫面;取得後才補上③的建議值。
+    // 期間若使用者又查了別的角色,seq 會對不上,直接丟棄這批結果。
+    const sources = await loadSuggestSources(ocid, equip);
+    if (seq !== searchSeq) return;
+    state.suggestSources = sources;
+    renderSuggestions();
   } catch (e) {
     showErr(e.message);
   } finally {
@@ -177,6 +195,21 @@ async function search(preset) {
   }
 
   function showErr(msg) { errBox.textContent = msg; errBox.classList.remove("hidden"); }
+}
+
+/* 建議值來源:單一端點失敗只會讓相關項目沒有建議值,不影響主流程 */
+async function loadSuggestSources(ocid, equip) {
+  const eps = [
+    ["symbol",   Api.getSymbol],
+    ["hexa",     Api.getHexaStat],
+    ["hyper",    Api.getHyperStat],
+    ["familiar", Api.getFamiliar],
+    ["union",    Api.getUnionRaider],
+  ];
+  const res = await Promise.allSettled(eps.map(([, fn]) => fn(ocid)));
+  const out = { equip };
+  res.forEach((r, i) => { out[eps[i][0]] = r.status === "fulfilled" ? r.value : null; });
+  return out;
 }
 
 /* ---------- 角色資訊 ---------- */
@@ -826,7 +859,8 @@ function setupSimulation(basic, stat) {
       }
     }
   }
-  $("base_build").onchange = fillBaseline;
+  // 體系變動會改變主/副屬對應的屬性,建議值須一併重算
+  $("base_build").onchange = () => { fillBaseline(); renderSuggestions(); };
 
   // 目標BOSS防禦%:依角色記憶,不隨 buff/基準值重算而被覆寫
   const targetKey = "msec_target_" + (basic.character_name || "");
@@ -903,8 +937,10 @@ function setupSimulation(basic, stat) {
   for (const [grid, fields] of [[$("manualGrid"), MANUAL_FIELDS], [$("burstGrid"), BURST_FIELDS]]) {
     grid.innerHTML = "";
     for (const [id, label] of fields) {
+      // 建議值只提供給③的五個欄位;爆發設定屬於玩法參數,API 無從得知
+      const sug = fields === MANUAL_FIELDS ? `<div class="suggest hidden" id="sug_${id}"></div>` : "";
       grid.insertAdjacentHTML("beforeend",
-        `<div class="field"><label>${label}</label><input type="number" step="any" id="manual_${id}" placeholder="${id === "burstSec" ? "20" : "0"}"></div>`);
+        `<div class="field"><label>${label}</label><input type="number" step="any" id="manual_${id}" placeholder="${id === "burstSec" ? "20" : "0"}">${sug}</div>`);
       const v = saved[id] != null ? saved[id] : MANUAL_DEFAULTS[id];
       if (v != null) $("manual_" + id).value = v;
     }
@@ -919,6 +955,7 @@ function setupSimulation(basic, stat) {
       localStorage.setItem(saveKey, JSON.stringify(data));
       updateDerivedClear();
       updateManualWarn();
+      renderSuggestions();
       // 爆發占比/爆發窗會改變覆蓋率與溢出率;各項%會改變裸值還原 → 皆需重算
       if (id === "burst" || id === "burstSec") BuffUI.refresh();
       fillBaseline();
@@ -935,6 +972,7 @@ function setupSimulation(basic, stat) {
   BuffUI.redrawActive();
   updateDerivedClear();
   updateManualWarn();
+  renderSuggestions();
 
   // 未填欄位提示
   function updateManualWarn() {
@@ -949,7 +987,8 @@ function setupSimulation(basic, stat) {
     if (!empty.length) { box.classList.add("hidden"); return; }
     box.classList.remove("hidden");
     box.innerHTML =
-      `⚠ 尚有 <b>${empty.length}</b> 項未填(視為 0),可能影響計算準確度:<br>` +
+      `⚠ 尚有 <b>${empty.length}</b> 項未填(視為 0),可能影響計算準確度` +
+      `(欄位下方若有「套用」可直接帶入建議值):<br>` +
       empty.map(([id, label]) =>
         `・<b>${esc(label.replace(/%\(.*$/, "%"))}</b> — ${esc(MANUAL_IMPACT[id] || "")}`).join("<br>");
   }
@@ -1003,6 +1042,65 @@ function setupSimulation(basic, stat) {
     fdPreview();
     $("resultBox").classList.add("hidden");
   };
+}
+
+/* ---------- ③手動填入的建議值 ---------- */
+// 各欄位的來源明細,供 tooltip 說明數字怎麼來的(值為 0 的來源不顯示)
+const SUGGEST_PARTS = {
+  attackPct:   [["equipAtkPct", "裝備"], ["famAtkPct", "萌獸"]],
+  mainPct:     [["equipMainPct", "裝備"], ["famMainPct", "萌獸"]],
+  minorPct:    [["equipMinorPct", "裝備"], ["famMinorPct", "萌獸"]],
+  mainUnique:  [["symbolMain", "符文"], ["hexaMain", "HEXA"], ["gemMain", "寶石"],
+                ["unionMain", "聯盟"], ["hyperMain", "極限屬性"]],
+  minorUnique: [["symbolMinor", "符文"], ["gemMinor", "寶石"],
+                ["unionMinor", "聯盟"], ["hyperMinor", "極限屬性"]],
+};
+
+// 由 API 推導出建議值顯示在欄位下方,不直接覆蓋使用者填的值
+function renderSuggestions() {
+  const note = $("suggestNote");
+  for (const [id] of MANUAL_FIELDS) {
+    const el = $("sug_" + id);
+    if (el) el.classList.add("hidden");
+  }
+  note.classList.add("hidden");
+  if (!state.suggestSources || !$("base_build")) return;
+
+  const bk = $("base_build").value;
+  const def = Engine.BUILDS[bk];
+  const r = Derive.deriveManual(state.suggestSources, bk, def);
+
+  if (!r.supported) {
+    note.classList.remove("hidden");
+    note.textContent =
+      `「${def ? def.label : bk}」的屬性換算方式尚未驗證,因此不提供建議值,請依遊戲內能力值 tooltip 自行填寫。`;
+    return;
+  }
+  if (r.missing.length) {
+    note.classList.remove("hidden");
+    note.textContent = `有 ${r.missing.length} 個資料來源讀取失敗,相關欄位沒有建議值,請自行填寫。`;
+  }
+
+  const fmt = (v) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  for (const [id] of MANUAL_FIELDS) {
+    const el = $("sug_" + id), v = r.values[id];
+    if (!el || v == null) continue;
+    const cur = parseFloat($("manual_" + id).value);
+    const same = Number.isFinite(cur) && Math.abs(cur - v) < 0.005;
+    const parts = (SUGGEST_PARTS[id] || [])
+      .filter(([k]) => r.detail[k])
+      .map(([k, label]) => `${label} ${fmt(r.detail[k])}`).join(" + ");
+    el.className = "suggest" + (same ? " same" : "");
+    el.innerHTML = `建議 <span class="sv">${fmt(v)}</span>` +
+      (same ? " ✓" : ` <button type="button">套用</button>`);
+    el.title = parts ? `${fmt(v)} = ${parts}` : "";
+    const btn = el.querySelector("button");
+    if (btn) btn.onclick = () => {
+      const input = $("manual_" + id);
+      input.value = v;
+      input.dispatchEvent(new Event("input"));
+    };
+  }
 }
 
 /* ---------- 共用計算入口 ---------- */

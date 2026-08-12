@@ -85,7 +85,10 @@
   <!-- 手動填入 -->
   <div class="card hidden" id="cardManual">
     <h2 id="hManual"><span class="stepno"></span>手動填入 <span class="baseline-tag">API 無法取得的數值</span></h2>
-    <div style="margin-bottom:6px;font-size:.85rem;color:var(--muted)">請照面板/裝備自行加總;會依角色名記住填寫值</div>
+    <div style="margin-bottom:6px;font-size:.85rem;color:var(--muted)">
+      直接照遊戲內能力值 tooltip 的「% 數值」與「% 未套用數值」填入即可,不需自行加總;會依角色名記住填寫值。
+    </div>
+    <div class="notice hidden" id="suggestNote"></div>
     <div class="simgrid" id="manualGrid"></div>
     <div class="hint" id="derivedClear"></div>
 
@@ -203,9 +206,11 @@
 })();
 </script>
 
-<!-- 依序載入:資料與引擎 → 主程式 -->
+<!-- 依序載入:資料與引擎 → 主程式(derive.js 需要 hexa.js 的對照表) -->
 <script src="js/engine.js"></script>
 <script src="js/data/buffs.js"></script>
+<script src="js/data/hexa.js"></script>
+<script src="js/derive.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

@@ -1,0 +1,7 @@
+# 本機密鑰,絕不進版控
+.env
+.env.*
+
+# 測試 fixture 為真實角色的 API 回傳,含個人裝備資料,不進版控。
+# 缺少時 test/derive.test.js 會自動略過「真實角色對照」那一段,不算失敗。
+test/fixtures/
