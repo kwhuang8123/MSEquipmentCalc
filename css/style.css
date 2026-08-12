@@ -43,6 +43,12 @@ button:disabled{opacity:.45;cursor:not-allowed}
 button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
 .hint{font-size:.76rem;color:var(--muted);margin-top:8px}
 .hint a{color:var(--accent)}
+/* ③手動填入的建議值 */
+.suggest{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:.72rem;color:var(--muted);
+         font-variant-numeric:tabular-nums}
+.suggest .sv{color:var(--accent2)}
+.suggest button{padding:2px 8px;font-size:.7rem;font-weight:600;border-radius:6px}
+.suggest.same .sv{color:var(--good)}
 .err{color:var(--bad);font-size:.85rem;margin-top:8px;white-space:pre-wrap}
 .hidden{display:none}
 details.adv{margin-top:10px}
