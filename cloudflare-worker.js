@@ -18,6 +18,9 @@ const ALLOW_ORIGIN = "https://你的帳號.github.io";
 const ALLOW_PATHS = [
   /^\/maplestorytw\/v1\/id$/,
   /^\/maplestorytw\/v1\/character\/(basic|stat|item-equipment)$/,
+  // ③手動填入的建議值來源
+  /^\/maplestorytw\/v1\/character\/(symbol-equipment|hexamatrix-stat|hyper-stat|familiar)$/,
+  /^\/maplestorytw\/v1\/user\/union-raider$/,
 ];
 
 export default {
